@@ -1,0 +1,182 @@
+const speaker=$C030
+const showgraphics=$C050
+const showtext=$C051
+const showfull=$C052
+const showmix=$C053
+const TRUE=$FFFF
+const FALSE=$0000
+const showpage1=$C054
+const showpage2=$C055
+const showlores=$C056
+const showhires=$C057
+const keyboard=$C000
+const keystrobe=$C010
+const hgr1=$2000
+const hgr2=$4000
+const page1=0
+const page2=1
+byte exitmsg[] = "PRESS ANY KEY TO EXIT."
+byte goodbye[] = "THAT'S ALL FOLKS!"
+byte rebootmsg[] = "PRESS ANY KEY TO REBOOT..."
+byte i, j, k, w, fmi, fmk, color
+;
+; CALL 6502 ROUTINE
+; ROMCALL(AREG, XREG, YREG, STATUS, ADDR)
+;
+asm romcall
+TMP	EQU	$06
+
+	PHP
+	LDA	ESTKL,X
+	STA	TMP
+	LDA	ESTKH,X
+	STA	TMP+1
+	INX
+	LDA	ESTKL,X
+	PHA
+	INX
+	LDA	ESTKL,X
+	TAY
+	INX
+	LDA	ESTKL+1,X
+	PHA
+	LDA	ESTKL,X
+	INX
+	STX	TMP+2
+	TAX
+	PLA
+	BIT	ROMIN
+	PLP
+	JSR 	JMPTMP
+	PHP
+	BIT	LCBNK2
+	STA	REGVALS+0
+	STX	REGVALS+1
+	STY	REGVALS+2
+	PLA
+	STA	REGVALS+3
+	LDX	TMP+2
+	LDA 	#<REGVALS
+	LDY 	#>REGVALS
+	STA 	ESTKL,X
+	STY 	ESTKH,X
+	PLP
+	RTS
+JMPTMP:	JMP	(TMP)
+REGVALS: DS	4
+end
+;
+; CHAR OUT
+; COUT(CHAR)
+;
+asm cout
+	LDA	ESTKL,X
+	INX
+	ORA	#$80
+	BIT	ROMIN
+	JSR	$FDED
+	BIT	LCBNK2
+end
+;
+; PRINT STRING
+; PRSTR(STR)
+;
+asm prstr
+	LDY	#$00
+	LDA     ESTKL,X
+    STA     TMP
+	LDA     ESTKH,X
+	STA     TMP+1
+	BIT	ROMIN
+	LDA     (TMP),Y
+	STA     ESTKL,X
+	BEQ     :+
+_PRS1:	INY
+	LDA	(TMP),Y
+	ORA	#$80
+	JSR	$FDED
+	TYA
+	CMP	ESTKL,X
+	BNE	_PRS1
+:	INX
+	BIT	LCBNK2
+end
+def textmode
+	drop romcall(0, 0, 0, 0, $FB39)
+end
+def home
+	drop romcall(0, 0, 0, 0, $FC58)
+end
+def gotoxy(x, y)
+	^($24) = x
+	drop romcall(y, 0, 0, 0, $FB5B)
+end
+def crout
+	cout($0D)
+end
+def grmode
+	drop romcall(0, 0, 0, 0, $FB40)
+	drop ^showlores
+end
+; grcolor(color)
+asm grcolor
+	LDA	ESTKL,X
+	INX
+	STX	TMP+2
+	BIT	$C081
+	JSR 	$F864
+	BIT	$C080
+	LDX	TMP+2
+end
+; grplot(x, y)
+asm grplot
+	LDA	ESTKL,X
+	INX
+	LDY	ESTKL,X
+	INX
+	STX	TMP+2
+	BIT	$C081
+	JSR 	$F800
+	BIT	$C080
+	LDX	TMP+2
+end
+defopt colors
+	while TRUE
+		for w = 3 to 50
+			for i = 1 to 19
+				for j = 0 to 19
+					k = i + j
+					color = (j * 3) / (i + 3) + i * w / 12
+					fmi = 40 - i
+					fmk = 40 - k
+					grcolor(color);
+					grplot(i, k);
+					grplot(k, i);
+					grplot(fmi, fmk);
+					grplot(fmk, fmi);
+					grplot(k, fmi);
+					grplot(fmi, k);
+					grplot(i, fmk);
+					grplot(fmk, i);
+					if ^keyboard >= 128
+						drop ^keystrobe
+						return
+					fin
+				next
+			next
+		next
+	loop
+end
+
+grmode()
+home()
+gotoxy(10,22)
+prstr(@exitmsg)
+colors()
+textmode()
+home()
+prstr(@goodbye)
+while ^keyboard < 128
+loop
+drop ^keystrobe
+done

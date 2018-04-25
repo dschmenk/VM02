@@ -1,0 +1,269 @@
+CONST FALSE      = 0
+CONST TRUE       = NOT FALSE
+CONST SHOWLORES  = $C056
+CONST KEYBOARD   = $C000
+CONST KEYSTROBE  = $C010
+CONST EMPTY      = 0
+CONST TREE       = 4
+CONST FIRE       = 13
+CONST FORESTSIZE = 42*42
+BYTE  HELLOMSG[] = "PRESS ANY KEY TO BEGIN..."
+BYTE  EXITMSG[]  = "PRESS ANY KEY TO EXIT."
+BYTE  GOODBYE[]  = "THAT'S ALL FOLKS!"
+BYTE  TREES1[FORESTSIZE]
+BYTE  TREES2[FORESTSIZE]
+WORD  RNDNUM
+;
+; Defines for ASM routines
+;
+ASM EQUATES
+        SRC     EQU     $F0
+        SRCL    EQU     SRC
+        SRCH    EQU     SRC+1
+        DST     EQU     SRC+2
+        DSTL    EQU     DST
+        DSTH    EQU     DST+1
+        ESP     EQU     DST+2
+END
+;
+; CALL 6502 ROUTINE
+; ROMCALL(AREG, XREG, YREG, STATUS, ADDR)
+;
+ASM ROMCALL
+TMP	EQU	$06
+
+	PHP
+	LDA	ESTKL,X
+	STA	TMP
+	LDA	ESTKH,X
+	STA	TMP+1
+	INX
+	LDA	ESTKL,X
+	PHA
+	INX
+	LDA	ESTKL,X
+	TAY
+	INX
+	LDA	ESTKL+1,X
+	PHA
+	LDA	ESTKL,X
+	INX
+	STX	TMP+2
+	TAX
+	PLA
+	BIT	ROMIN
+	PLP
+	JSR 	JMPTMP
+	PHP
+	BIT	LCBNK2
+	STA	REGVALS+0
+	STX	REGVALS+1
+	STY	REGVALS+2
+	PLA
+	STA	REGVALS+3
+	LDX	TMP+2
+	LDA 	#<REGVALS
+	LDY 	#>REGVALS
+	STA 	ESTKL,X
+	STY 	ESTKH,X
+	PLP
+	RTS
+JMPTMP:	JMP	(TMP)
+REGVALS: DS	4
+END
+;
+; GRCOLOR(COLOR)
+;
+ASM GRCOLOR
+	LDA	ESTKL,X
+	INX
+	STX	TMP+2
+	BIT	$C081
+	JSR 	$F864
+	BIT	$C080
+	LDX	TMP+2
+END
+;
+; GRPLOT(X, Y)
+;
+ASM GRPLOT
+    LDA	ESTKL,X
+	INX
+	LDY	ESTKL,X
+	INX
+	STX	TMP+2
+	BIT	$C081
+	JSR 	$F800
+	BIT	$C080
+	LDX	TMP+2
+END
+;
+; SET MEMORY TO VALUE
+; MEMSET(VALUE, ADDR, SIZE)
+;
+ASM MEMSET
+        LDY     #$00
+        LDA     ESTKL+1,X
+        STA     DSTL
+        LDA     ESTKH+1,X
+        STA     DSTH
+        INC     ESTKL,X
+        INC     ESTKH,X
+SETMEM: DEC     ESTKL,X
+        BNE     :+
+        DEC     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKL+2,X
+        STA     (DST),Y
+        INY
+        BNE     :+
+        INC     DSTH
+:       DEC     ESTKL,X
+        BNE     :+
+        DEC     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKH+2,X
+        STA     (DST),Y
+        INY
+        BNE     SETMEM
+        INC     DSTH
+        BNE     SETMEM
+MEMEXIT: INX
+        INX
+        INX
+END
+;
+; PRINT STRING
+; PRSTR(STR)
+;
+ASM PRSTR
+        LDY     #$00
+        LDA     ESTKL,X
+        STA     SRCL
+        LDA     ESTKH,X
+        STA     SRCH
+        BIT     ROMIN
+        LDA     (SRC),Y
+        STA     ESTKL,X
+        BEQ     :+
+_PRS1:  INY
+        LDA     (SRC),Y
+        ORA     #$80
+        JSR     $FDED
+        TYA
+        CMP     ESTKL,X
+        BNE     _PRS1
+:       INX
+        BIT     LCBNK2
+END
+DEF TEXTMODE
+  DROP ROMCALL(0, 0, 0, 0, $FB39)
+END
+
+DEF HOME
+  DROP ROMCALL(0, 0, 0, 0, $FC58)
+END
+
+DEF GOTOXY(X, Y)
+  ^($24) = X
+  DROP ROMCALL(Y, 0, 0, 0, $FB5B)
+END
+
+DEF GRMODE
+  DROP ROMCALL(0, 0, 0, 0, $FB40)
+  DROP ^SHOWLORES
+END
+
+DEF RANDOMIZE(SEED)
+  RNDNUM = (SEED << 8) ? (SEED >> 8 & $FF) + SEED
+END
+
+DEFOPT RND
+  RNDNUM = (RNDNUM << 8) + RNDNUM + 12345
+  RETURN RNDNUM & $7FFF
+END
+
+DEFOPT BYFIRE(TREEPTR)
+  IF    ^(TREEPTR - 43) == FIRE
+    RETURN TRUE
+  ELSIF ^(TREEPTR - 42) == FIRE
+    RETURN TRUE
+  ELSIF ^(TREEPTR - 41) == FIRE
+    RETURN TRUE
+  ELSIF ^(TREEPTR - 1)  == FIRE
+    RETURN TRUE
+  ELSIF ^(TREEPTR + 1)  == FIRE
+    RETURN TRUE
+  ELSIF ^(TREEPTR + 41) == FIRE
+    RETURN TRUE
+  ELSIF ^(TREEPTR + 42) == FIRE
+    RETURN TRUE
+  ELSIF ^(TREEPTR + 43) == FIRE
+    RETURN TRUE
+  FIN
+  RETURN FALSE
+END
+DEFOPT FORESTFIRE
+  WORD NEWTREES, OLDTREES, NEWTREE, OLDTREE, YROW
+  BYTE X, Y
+
+  MEMSET(EMPTY, @TREES1, FORESTSIZE)
+  MEMSET(EMPTY, @TREES2, FORESTSIZE)
+  OLDTREES = @TREES1
+  NEWTREES = @TREES2
+
+  FOR Y = 1 TO 40
+    YROW = Y * 42
+    FOR X = 1 TO 40
+      IF RND < 16384
+        ^(OLDTREES + X + YROW) = TREE
+      FIN
+    NEXT
+  NEXT
+  WHILE ^$C000 < 128
+    FOR Y = 1 TO 40
+      YROW = Y * 42
+      FOR X = 1 TO 40
+        OLDTREE = OLDTREES + X + YROW
+        NEWTREE = NEWTREES + X + YROW
+        WHEN ^OLDTREE
+          IS EMPTY
+            IF RND < 400
+              ^NEWTREE = TREE
+            ELSE
+              ^NEWTREE = EMPTY
+            FIN
+          IS TREE
+            IF RND < 10 OR BYFIRE(OLDTREE)
+              ^NEWTREE = FIRE
+            ELSE
+              ^NEWTREE = TREE
+            FIN
+          IS FIRE
+            ^NEWTREE = EMPTY
+        WEND
+        GRCOLOR(^NEWTREE)
+        GRPLOT(X - 1, Y - 1)
+      NEXT
+    NEXT
+    NEWTREES =, OLDTREES = OLDTREES, NEWTREES
+  LOOP
+  DROP ^$C010
+END
+
+PRSTR(@HELLOMSG)
+WHILE ^$C000 < 128
+  RNDNUM = RNDNUM + 1
+LOOP
+RANDOMIZE(RNDNUM)
+DROP ^$C010
+GRMODE
+HOME
+GOTOXY(10,22)
+PRSTR(@EXITMSG)
+FORESTFIRE
+TEXTMODE
+HOME
+PRSTR(@GOODBYE)
+DONE
+

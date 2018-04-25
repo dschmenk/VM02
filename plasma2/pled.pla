@@ -1,0 +1,1476 @@
+;
+; Global constants
+;
+const FALSE         = 0
+const TRUE          = !FALSE
+;
+; Hardware constants
+;
+const csw           = $0036
+const speaker       = $C030
+const showgraphics  = $C050
+const showtext      = $C051
+const showfull      = $C052
+const showmix       = $C053
+const showpage1     = $C054
+const showpage2     = $C055
+const showlores     = $C056
+const showhires     = $C057
+const pushbttn1     = $C061
+const pushbttn2     = $C062
+const pushbttn3     = $C063
+const keyboard      = $C000
+const keystrobe     = $C010
+const keyenter      = $8D
+const keyspace      = $A0
+const keyarrowup    = $8B
+const keyarrowdown  = $8A
+const keyarrowleft  = $88
+const keyarrowright = $95
+const keyescape     = $9B
+const keyctrla      = $81
+const keyctrlb      = $82
+const keyctrlc      = $83
+const keyctrld      = $84
+const keyctrle      = $85
+const keyctrli      = $89
+const keyctrlk      = $8B
+const keyctrll      = $8C
+const keyctrln      = $8E
+const keyctrlo      = $8F
+const keyctrlp      = $90
+const keyctrlq      = $91
+const keyctrlr      = $92
+const keyctrls      = $93
+const keyctrlt      = $94
+const keyctrlu      = $95
+const keyctrlv      = $96
+const keyctrlw      = $97
+const keyctrlx      = $98
+const keyctrlz      = $9A
+const keydelete     = $FF
+const getbuff       = $01FF
+const argbuff       = $2006
+word txtscrn[]      = $0400,$0480,$0500,$0580,$0600,$0680,$0700,$0780
+word                = $0428,$04A8,$0528,$05A8,$0628,$06A8,$0728,$07A8
+word                = $0450,$04D0,$0550,$05D0,$0650,$06D0,$0750,$07D0
+;
+; Data and text buffer constants
+;
+const machid        = $BF98
+const maxlines      = 1500
+const maxfill       = 1524
+const iobuffer      = $0800
+const databuff      = $0C00
+const strlinbuf     = $1000
+const strheapmap    = $1F00
+const strheapmsz    = 224 ; $E0 = 28K is memory@16 bytes per bit map, 128 bytes per 8 bit map, 1K bytes per 8 byte map
+const maxlnlen      = 79
+const strheap       = $4800
+const strheasz      = $7000
+const pgjmp         = 16
+const changed       = 1
+const insmode       = 2
+const showcurs      = 4
+const uppercase     = 8
+const shiftlock     = 128
+;
+; Editor variables
+;
+byte nullstr[]      = ""
+byte version[]      = "PLASMA ][ EDITOR VERSION 0.8 "
+byte errorstr[]     = "ERROR: $"
+byte okstr[]        = "OK"
+byte perr
+byte outofmem[]     = "OUT OF MEMORY!"
+byte losechng[]     = "LOSE CHANGES TO FILE (Y/N)?"
+;byte emiterr[]     = "EMIT CODE/DATA MISMATCH"
+byte untitled[]     = "UNTITLED"
+byte txtfile[64]    = "UNTITLED.PLA"
+byte flags          = 0
+byte flash          = 0
+byte cursx, cursy, scrnleft, curscol, underchr, curschr
+word cursrow, scrntop, cursptr
+word numlines       = 0
+word cutbuf         = 0
+word keyin_01
+;
+; Predeclared functions
+;
+func cmdmode
+;
+; Utility functions
+;
+; Defines for ASM routines
+;
+asm equates
+        TMP     EQU     $F0
+        TMPL    EQU     TMP
+        TMPH    EQU     TMP+1
+        SRC     EQU     TMP
+        SRCL    EQU     SRC
+        SRCH    EQU     SRC+1
+        DST     EQU     SRC+2
+        DSTL    EQU     DST
+        DSTH    EQU     DST+1
+        ESP     EQU     DST+2
+end
+; CALL 6502 ROUTINE
+; ROMCALL(AREG, XREG, YREG, STATUS, ADDR)
+;
+asm romcall
+        PHP
+        LDA     ESTKL,X
+        STA     TMPL
+        LDA     ESTKH,X
+        STA     TMPH
+        INX
+        LDA     ESTKL,X
+        PHA
+        INX
+        LDA     ESTKL,X
+        TAY
+        INX
+        LDA     ESTKL+1,X
+        PHA
+        LDA     ESTKL,X
+        INX
+        STX     ESP
+        TAX
+        PLA
+        BIT     ROMIN
+        PLP
+        JSR     JMPTMP
+        PHP
+        BIT     LCBNK2
+        STA     REGVALS+0
+        STX     REGVALS+1
+        STY     REGVALS+2
+        PLA
+        STA     REGVALS+3
+        LDX     ESP
+        LDA     #<REGVALS
+        LDY     #>REGVALS
+        STA     ESTKL,X
+        STY     ESTKH,X
+        PLP
+        RTS
+JMPTMP: JMP (TMP)
+REGVALS: DS 4
+end
+;
+; CALL PRODOS
+; SYSCALL(CMD, PARAMS)
+;
+asm syscall
+        LDA     ESTKL,X
+        LDY     ESTKH,X
+        STA     PARAMS
+        STY     PARAMS+1
+        INX
+        LDA     ESTKL,X
+        STA     CMD
+        STX     ESP
+        JSR     $BF00
+CMD:    DB      00
+PARAMS: DW      0000
+        BIT     LCBNK2
+        LDX     ESP
+        STA     ESTKL,X
+        LDY     #$00
+        STY     ESTKH,X
+end
+;
+; SET MEMORY TO VALUE
+; MEMSET(VALUE, ADDR, SIZE)
+;
+asm memset
+        LDY     #$00
+        LDA     ESTKL+1,X
+        STA     DSTL
+        LDA     ESTKH+1,X
+        STA     DSTH
+        INC     ESTKL,X
+        INC     ESTKH,X
+SETMEM: DEC     ESTKL,X
+        BNE     :+
+        DEC     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKL+2,X
+        STA     (DST),Y
+        INY
+        BNE     :+
+        INC     DSTH
+:       DEC     ESTKL,X
+        BNE     :+
+        DEC     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKH+2,X
+        STA     (DST),Y
+        INY
+        BNE     SETMEM
+        INC     DSTH
+        BNE     SETMEM
+MEMEXIT: INX
+        INX
+        INX
+end
+;
+; COPY MEMORY
+; MEMCPY(SRCADDR, DSTADDR, SIZE)
+;
+asm memcpy
+        LDY     #$00
+        LDA     ESTKL,X
+        BNE     :+
+        LDA     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKL+1,X
+        STA     DSTL
+        LDA     ESTKH+1,X
+        STA     DSTH
+        LDA     ESTKL+2,X
+        STA     SRCL
+        LDA     ESTKH+2,X
+        STA     SRCH
+        CMP     DSTH
+        BCC     REVCPY
+        BNE     FORCPY
+        LDA     SRCL
+        CMP     DSTL
+        BCS     FORCPY
+REVCPY:             ; REVERSE DIRECTION COPY
+;       CLC
+        LDA     ESTKL,X
+        ADC     DSTL
+        STA     DSTL
+        LDA     ESTKH,X
+        ADC     DSTH
+        STA     DSTH
+        CLC
+        LDA     ESTKL,X
+        ADC     SRCL
+        STA     SRCL
+        LDA     ESTKH,X
+        ADC     SRCH
+        STA     SRCH
+        INC     ESTKH,X
+REVCPYLP:
+        LDA     DSTL
+        BNE     :+
+        DEC     DSTH
+:       DEC     DSTL
+        LDA     SRCL
+        BNE     :+
+        DEC     SRCH
+:       DEC     SRCL
+        LDA     (SRC),Y
+        STA     (DST),Y
+        DEC     ESTKL,X
+        BNE     REVCPYLP
+        DEC     ESTKH,X
+        BNE     REVCPYLP
+        BEQ     MEMEXIT
+FORCPY: INC     ESTKH,X
+FORCPYLP:
+        LDA     (SRC),Y
+        STA     (DST),Y
+        INC     DSTL
+        BNE     :+
+        INC     DSTH
+:       INC     SRCL
+        BNE     :+
+        INC     SRCH
+:       DEC     ESTKL,X
+        BNE     FORCPYLP
+        DEC     ESTKH,X
+        BNE     FORCPYLP
+        BEQ     MEMEXIT
+end
+;
+; CHAR OUT
+; COUT(CHAR)
+;
+asm cout
+        LDA     ESTKL,X
+        INX
+        ORA     #$80
+        BIT     ROMIN
+        JSR     $FDED
+        BIT     LCBNK2
+end
+;
+; CHAR IN
+; RDKEY()
+;
+asm cin
+        BIT     ROMIN
+        STX     ESP
+        JSR     $FD0C
+        LDX     ESP
+        BIT     LCBNK2
+        DEX
+        AND     #$7F
+        STA     ESTKL,X
+        LDY     #$00
+        STY     ESTKH,X
+end
+;
+; PRINT STRING
+; PRSTR(STR)
+;
+asm prstr
+        LDY     #$00
+        LDA     ESTKL,X
+        STA     SRCL
+        LDA     ESTKH,X
+        STA     SRCH
+        BIT     ROMIN
+        LDA     (SRC),Y
+        STA     ESTKL,X
+        BEQ     :+
+_PRS1:  INY
+        LDA     (SRC),Y
+        ORA     #$80
+        JSR     $FDED
+        TYA
+        CMP     ESTKL,X
+        BNE     _PRS1
+:       INX
+        BIT     LCBNK2
+end
+;
+; READ STRING
+; STR = RDSTR(PROMPTCHAR)
+;
+asm rdstr
+        LDA     ESTKL,X
+        STA     $33
+        STX     ESP
+        BIT     ROMIN
+        JSR     $FD6A
+        BIT     LCBNK2
+        STX     $01FF
+:       LDA     $01FF,X
+        AND     #$7F
+        STA     $01FF,X
+        DEX
+        BPL     :-
+        LDX     ESP
+        LDA     #$FF
+        STA     ESTKL,X
+        LDA     #$01
+        STA     ESTKH,X
+end
+;
+; EXIT
+;
+asm exit
+        JSR $BF00
+        DB  $65
+        DW  EXITTBL
+EXITTBL:
+        DB  4
+        DB  0
+end
+;
+; ProDOS routines
+;
+def getpfx_11(path)
+    byte params[3]
+
+    ^path    = 0
+    params.0 = 1
+    params:1 = path
+    perr     = syscall($C7, @params)
+    return path
+end
+def setpfx_11(path)
+    byte params[3]
+
+    params.0 = 1
+    params:1 = path
+    perr     = syscall($C6, @params)
+    return path
+end
+def open_21(path, buff)
+    byte params[6]
+
+    params.0 = 3
+    params:1 = path
+    params:3 = buff
+    params.5 = 0
+    perr     = syscall($C8, @params)
+    return params.5
+end
+def close_11(refnum)
+    byte params[2]
+
+    params.0 = 1
+    params.1 = refnum
+    perr     = syscall($CC, @params)
+    return perr
+end
+def read_31(refnum, buff, len)
+    byte params[8]
+
+    params.0 = 4
+    params.1 = refnum
+    params:2 = buff
+    params:4 = len
+    params:6 = 0
+    perr     = syscall($CA, @params)
+    return params:6
+end
+def write_31(refnum, buff, len)
+    byte params[8]
+
+    params.0 = 4
+    params.1 = refnum
+    params:2 = buff
+    params:4 = len
+    params:6 = 0
+    perr     = syscall($CB, @params)
+    return params:6
+end
+def create_41(path, access, type, aux)
+    byte params[12]
+
+    params.0  = 7
+    params:1  = path
+    params.3  = access
+    params.4  = type
+    params:5  = aux
+    params.7  = $1
+    params:8  = 0
+    params:10 = 0
+    perr      = syscall($C0, @params)
+    return perr
+end
+def destroy_11(path)
+    byte params[12]
+
+    params.0 = 1
+    params:1 = path
+    perr     = syscall($C1, @params)
+    return perr
+end
+def newline_31(refnum, emask, nlchar)
+    byte params[4]
+
+    params.0 = 3
+    params.1 = refnum
+    params.2 = emask
+    params.3 = nlchar
+    perr     = syscall($C9, @params)
+    return perr
+end
+
+;=====================================
+;
+;            Editor
+;
+;=====================================
+
+def crout
+    cout($0D)
+end
+def bell
+    drop romcall(0, 0, 0, 0, $FBDD)
+end
+;
+; Memory management routines
+;
+defopt strcpy_20(srcstr, dststr)
+    byte strlen
+
+    strlen = ^srcstr
+    while (srcstr).[strlen] == $8D or (srcstr).[strlen] == $A0
+        strlen = strlen - 1
+    loop
+    ^dststr = strlen
+    memcpy(srcstr + 1, dststr + 1, strlen)
+end
+defopt heapaddr_21(ofst, mask)
+    word addr
+
+    addr = (ofst << 7) + strheap
+    while !(mask & 1)
+        addr = addr + 16
+        mask = mask >> 1
+    loop
+    return addr
+end
+defopt sizemask_11(size)
+    if size <= 16
+        return $01
+    elsif size <= 32
+        return $03
+    elsif size <= 48
+        return $07
+    elsif size <= 64
+        return $0F
+    elsif size <= 80
+        return $1F
+    fin
+    return 0
+end
+defopt heapalloc_11(size)
+    byte szmask, i
+    word mapmask
+
+    szmask = sizemask_11(size)
+    for i = strheapmsz - 1 downto 0
+        if strheapmap.[i] <> $FF
+            mapmask = szmask
+            repeat
+                if strheapmap.[i] & mapmask
+                    mapmask = mapmask << 1
+                else
+                    strheapmap.[i] = strheapmap.[i] ? mapmask
+                    return heapaddr_21(i, mapmask)
+                fin
+            until mapmask & $100
+        fin
+    next
+    bell()
+    prstr(@outofmem)
+    return 0
+end
+def freestr_10(strptr)
+    byte mask, ofst
+
+    if strptr and strptr <> @nullstr
+        mask = sizemask_11(^strptr + 1)
+        ofst = (strptr - strheap) >> 4
+        mask = mask << (ofst & $07)
+        ofst = ofst >> 3
+        strheapmap.[ofst] = strheapmap.[ofst] & #mask
+    fin
+end
+def newstr_11(strptr)
+    byte strlen
+    word newptr
+
+    strlen = ^strptr
+    while (strptr).[strlen] == $8D or (strptr).[strlen] == $A0
+        strlen = strlen - 1
+    loop
+    if strlen == 0
+        return @nullstr
+    fin
+    newptr = heapalloc_11(strlen + 1)
+    if newptr
+        memcpy(strptr, newptr, strlen + 1)
+        ^newptr = strlen
+        return newptr
+    fin
+    return @nullstr
+end
+def inittxtbuf
+    word i
+
+    memset(0, strheapmap, strheapmsz)
+    memset(@nullstr, strlinbuf, maxfill * 2)
+    numlines   = 0
+    cursrow    = 0
+    curscol    = 0
+    cursx      = 0
+    cursy      = 0
+    scrnleft   = 0
+    scrntop    = 0
+    cutbuf     = 0
+end
+;
+; Case conversion/printing routines
+;
+def caseconv_11(chr)
+    if flags & uppercase
+        if chr & $E0 == $E0
+            chr = chr - $E0
+        fin
+    fin
+    return chr
+end
+def strupper_10(strptr)
+    byte i, chr
+
+    for i = ^strptr downto 1
+        chr = (strptr).[i]
+        if chr & $E0 == $E0
+            (strptr).[i] = chr - $E0
+        fin
+    next
+end
+def strlower_10(strptr)
+    byte i, chr
+
+    for i = ^strptr downto 1
+        chr = (strptr).[i]
+        if chr & $E0 == $00
+            (strptr).[i] = chr + $E0
+        fin
+    next
+end
+def txtupper
+    word i, strptr
+
+    flags = flags ? uppercase
+    for i = numlines - 1 downto 0
+        strupper_10(strlinbuf:[i])
+    next
+end
+def txtlower
+    word i, strptr
+
+    flags = flags & #uppercase
+    for i = numlines - 1 downto 0
+        strlower_10(strlinbuf:[i])
+    next
+end
+def prbyte_10(h)
+    cout('$')
+    drop romcall(h, 0, 0, 0, $FDDA)
+end
+def prword_10(h)
+    cout('$')
+    drop romcall(h >> 8, h, 0, 0, $F941)
+end
+def print_10(i)
+    byte numstr[7]
+    byte place, sign
+
+    place = 6
+    if i < 0
+        sign = 1
+        i    = -i
+    else
+        sign = 0
+    fin
+    while i >= 10
+        i =, numstr[place] = i % 10 + '0'
+        place              = place - 1
+    loop
+    numstr[place] = i + '0'
+    place         = place - 1
+    if sign
+        numstr[place] = '-'
+        place         = place - 1
+    fin
+    numstr[place] = 6 - place
+    prstr(@numstr[place])
+end
+def nametostr_30(namestr, len, strptr)
+    ^strptr = len
+    memcpy(namestr, strptr + 1, len)
+end
+;def toupper_11(c)
+;   if c >= 'a'
+;       if c <= 'z'
+;           return c - $20
+;       fin
+;   fin
+;   return c
+;end
+asm toupper_11
+        LDA     ESTKL,X
+        AND     #$7F
+        CMP     #'a'
+        BCC     :+
+        CMP     #'z'+1
+        BCS     :+
+        SEC
+        SBC     #$20
+:       STA     ESTKL,X
+end
+asm clrhibit_10(strptr)
+        LDY     #$02        ; strptr
+        LDA     (FRMP),Y
+        STA     SRCL
+        INY
+        LDA     (FRMP),Y
+        STA     SRCH
+        LDY     #$00
+        LDA     (SRC),Y
+        BEQ     :+
+        TAY
+CLHILP: LDA     (SRC),Y
+        AND     #$7F
+        STA     (SRC),Y
+        DEY
+        BNE     CLHILP
+:
+end
+asm sethibit_10(strptr)
+        LDY     #$02        ; strptr
+        LDA     (FRMP),Y
+        STA     SRCL
+        INY
+        LDA     (FRMP),Y
+        STA     SRCH
+        LDY     #$00
+        LDA     (SRC),Y
+        BEQ     :+
+        TAY
+STHILP: LDA     (SRC),Y
+        ORA     #$80
+        STA     (SRC),Y
+        DEY
+        BNE     STHILP
+:
+end
+asm cpyln_20(srcstr, dststr)
+        LDY     #$02        ; srcstr
+        LDA     (FRMP),Y
+        STA     SRCL
+        INY
+        LDA     (FRMP),Y
+        STA     SRCH
+        INY                 ; dststr
+        LDA     (FRMP),Y
+        STA     DSTL
+        INY
+        LDA     (FRMP),Y
+        STA     DSTH
+        LDY     #$00
+        LDA     (SRC),Y
+        TAY
+        LDA     #$00
+        INY
+        STA     (DST),Y
+        DEY
+        BEQ     :++
+CPLNLP: LDA     (SRC),Y
+        CMP     #$20
+        BCS     :+
+        ADC     #$60
+:       AND     #$7F
+        STA     (DST),Y
+        DEY
+        BNE     CPLNLP
+        LDA     (SRC),Y
+:       STA     (DST),Y
+end
+;
+; File routines
+;
+def readtxt_10(filename)
+    byte txtbuf[81], refnum, i, j
+
+    refnum = open_21(filename, iobuffer)
+    if refnum
+        drop newline_31(refnum, $7F, $0D)
+        repeat
+            txtbuf = read_31(refnum, @txtbuf + 1, maxlnlen)
+            if txtbuf
+                sethibit_10(@txtbuf)
+                if flags & uppercase
+                    strupper_10(@txtbuf)
+                fin
+                strlinbuf:[numlines] = newstr_11(@txtbuf)
+                numlines = numlines + 1
+            fin
+            if !(numlines & $0F)
+                cout('.')
+            fin
+        until txtbuf == 0 or numlines == maxlines
+        drop close_11(refnum)
+    fin
+    if numlines == 0
+        numlines = 1
+    fin
+end
+def writetxt_10(filename)
+    byte txtbuf[81], refnum
+    byte j, chr
+    word i, strptr
+
+    drop destroy_11(filename)
+    drop create_41(filename, $C3, $04, $00) ; full access, TXT file
+    refnum = open_21(filename, iobuffer)
+    if refnum == 0
+        return
+    fin
+    for i = 0 to numlines - 1
+        cpyln_20(strlinbuf:[i], @txtbuf)
+        txtbuf = txtbuf + 1
+        txtbuf[txtbuf] = $0D
+        drop write_31(refnum, @txtbuf + 1, txtbuf)
+        if !(i & $0F)
+            cout('.')
+        fin
+    next
+    drop close_11(refnum)
+end
+;
+; Screen routines
+;
+def clrscrn
+    drop romcall(0, 0, 0, 0, $FC58)
+end
+def drawrow_30(row, ofst, strptr)
+    byte numchars
+    word scrnptr
+
+    scrnptr = txtscrn[row]
+    if ^strptr <= ofst
+        numchars = 0
+    else
+        numchars = ^strptr - ofst
+    fin
+    if numchars >= 40
+        numchars = 40
+    else
+        memset($A0A0, scrnptr + numchars, 40 - numchars)
+    fin
+    memcpy(strptr + ofst + 1, scrnptr, numchars)
+end
+defopt drawscrn_20(toprow, ofst)
+    byte row, numchars
+    word strptr, scrnptr
+
+    for row = 0 to 23
+        strptr  = strlinbuf:[toprow + row]
+        scrnptr = txtscrn[row]
+        if ^strptr <= ofst
+            numchars = 0
+        else
+            numchars = ^strptr - ofst
+        fin
+        if numchars >= 40
+            numchars = 40
+        else
+            memset($A0A0, scrnptr + numchars, 40 - numchars)
+        fin
+        memcpy(strptr + ofst + 1, scrnptr, numchars)
+    next
+end
+def cursoff
+    if flags & showcurs
+        ^cursptr = underchr
+        flags = flags & #showcurs
+    fin
+end
+def curson
+    if !(flags & showcurs)
+        cursptr  = txtscrn[cursy] + cursx
+        underchr = ^cursptr
+        ^cursptr = curschr
+        flags = flags ? showcurs
+    fin
+end
+def cursflash()
+    if flags & showcurs
+        if flash == 0
+            ^cursptr = curschr
+        elsif flash == 128
+            ^cursptr = underchr
+        fin
+        flash = flash + 1
+    fin
+end
+def redraw
+    cursoff()
+    drawscrn_20(scrntop, scrnleft)
+    curson()
+end
+def curshome
+    cursoff()
+    cursrow  = 0
+    curscol  = 0
+    cursx    = 0
+    cursy    = 0
+    scrnleft = 0
+    scrntop  = 0
+    drawscrn_20(scrntop, scrnleft)
+    curson()
+end
+def cursend
+    cursoff()
+    if numlines > 23
+        cursrow  = numlines - 1
+        cursy    = 23
+        scrntop  = cursrow - 23
+    else
+        cursrow  = numlines - 1
+        cursy    = numlines - 1
+        scrntop  = 0
+    fin
+    curscol  = 0
+    cursx    = 0
+    scrnleft = 0
+    drawscrn_20(scrntop, scrnleft)
+    curson()
+end
+def cursup
+    if cursrow > 0
+        cursoff()
+        cursrow = cursrow - 1
+        if cursy > 0
+            cursy = cursy - 1
+        else
+            scrntop = cursrow
+            drawscrn_20(scrntop, scrnleft)
+        fin
+        curson()
+    fin
+end
+def pgup
+    byte i
+
+    for i = pgjmp downto 0
+        cursup()
+    next
+end
+def cursdown
+    if cursrow < numlines - 1
+        cursoff()
+        cursrow = cursrow + 1
+        if cursy < 23
+            cursy = cursy + 1
+        else
+            scrntop = cursrow - 23
+            drawscrn_20(scrntop, scrnleft)
+        fin
+        curson()
+    fin
+end
+def pgdown
+    byte i
+
+    for i = pgjmp downto 0
+        cursdown()
+    next
+end
+def cursleft
+    if curscol > 0
+        cursoff()
+        curscol = curscol - 1
+        if cursx > 0
+            cursx = cursx - 1
+        else
+            scrnleft = curscol
+            drawscrn_20(scrntop, scrnleft)
+        fin
+        curson()
+    fin
+end
+def pgleft
+    byte i
+
+    for i = 7 downto 0
+        cursleft()
+    next
+end
+def cursright
+    if curscol < 80
+        cursoff()
+        curscol = curscol + 1
+        if cursx < 39
+            cursx = cursx + 1
+        else
+            scrnleft = curscol - 39
+            drawscrn_20(scrntop, scrnleft)
+        fin
+        curson()
+    fin
+end
+def pgright
+    byte i
+
+    for i = 7 downto 0
+        cursright()
+    next
+end
+;
+; Keyboard routines
+;
+def keyin2e_01
+    repeat
+        cursflash()
+    until ^keyboard >= 128
+    return ^keystrobe
+end
+def keyin2_01
+    byte key
+
+    repeat
+        cursflash()
+        key = ^keyboard
+        if key == keyctrll
+            drop ^keystrobe
+            flags = flags ^ shiftlock
+            key   = 0
+        fin
+    until key >= 128
+    drop ^keystrobe
+    if key == keyctrln
+        key = $DB ; [
+    elsif key == keyctrlp
+        key = $DF ; _
+    elsif key == keyctrlb
+        key = $DC ; \
+    elsif key == keyarrowleft
+        if ^pushbttn3 < 128
+            key = $FF
+        fin
+    elsif key >= $C0 and flags < shiftlock
+        if ^pushbttn3 < 128
+            if key == $C0
+                key = $D0 ; P
+            elsif key == $DD
+                key = $CD ; M
+            elsif key == $DE
+                key = $CE ; N
+            fin
+        else
+           key = key ? $E0
+        fin
+    fin
+    return key
+end
+;
+; Printer routines
+;
+def printtxt_10(slot)
+    byte txtbuf[80]
+    word i, scrncsw
+
+    scrncsw = *(csw)
+    *(csw)  = $C000 ? (slot << 8)
+    for i = 0 to numlines - 1
+        cpyln_20(strlinbuf:[i], @txtbuf)
+        prstr(@txtbuf)
+        crout()
+    next
+    *(csw) = scrncsw
+end
+def openline_11(row)
+    if numlines < maxlines
+        memcpy(@strlinbuf:[row], @strlinbuf:[row + 1], (numlines - row) * 2)
+        strlinbuf:[row] = @nullstr
+        numlines = numlines + 1
+        flags = flags ? changed
+        return 1
+    fin
+    bell()
+    return 0
+end
+def cutline
+    freestr_10(cutbuf)
+    cutbuf = strlinbuf:[cursrow]
+    memcpy(@strlinbuf:[cursrow + 1], @strlinbuf:[cursrow], (numlines - cursrow) * 2)
+    if numlines > 1
+        numlines = numlines - 1
+    fin
+    flags = flags ? changed
+    if cursrow == numlines
+        cursup()
+    fin
+    redraw()
+end
+def pasteline
+    if cutbuf and numlines < maxlines
+        memcpy(@strlinbuf:[cursrow], @strlinbuf:[cursrow + 1], (numlines - cursrow) * 2)
+        strlinbuf:[cursrow] = newstr_11(cutbuf)
+        numlines = numlines + 1
+        flags = flags ? changed
+        redraw()
+    else
+        bell()
+    fin
+end
+def joinline
+    byte joinstr[80], joinlen
+
+    if cursrow < numlines - 1
+        strcpy_20(strlinbuf:[cursrow], @joinstr)
+        joinlen = joinstr + ^(strlinbuf:[cursrow + 1])
+        if joinlen < 80
+            memcpy(strlinbuf:[cursrow + 1] + 1, @joinstr + joinstr + 1, ^(strlinbuf:[cursrow + 1]))
+            joinstr = joinlen
+            freestr_10(strlinbuf:[cursrow])
+            strlinbuf:[cursrow] = newstr_11(@joinstr)
+            freestr_10(strlinbuf:[cursrow + 1])
+            numlines = numlines - 1
+            memcpy(@strlinbuf:[cursrow + 2], @strlinbuf:[cursrow + 1], (numlines - cursrow) * 2)
+            flags = flags ? changed
+            redraw()
+        else
+            bell()
+        fin
+    fin
+end
+def splitline
+    byte splitstr[80], splitlen
+
+    if openline_11(cursrow + 1)
+        if curscol
+            splitlen = ^(strlinbuf:[cursrow])
+            if curscol < splitlen - 1
+                memcpy(strlinbuf:[cursrow] + curscol + 1, @splitstr + 1, splitlen - curscol)
+                splitstr = splitlen - curscol
+                strlinbuf:[cursrow + 1] = newstr_11(@splitstr)
+                memcpy(strlinbuf:[cursrow] + 1, @splitstr + 1, curscol)
+                splitstr = curscol
+                freestr_10(strlinbuf:[cursrow])
+                strlinbuf:[cursrow] = newstr_11(@splitstr)
+            fin
+        else
+            strlinbuf:[cursrow + 1] = strlinbuf:[cursrow]
+            strlinbuf:[cursrow]     = @nullstr
+        fin
+        curscol  = 0
+        cursx    = 0
+        scrnleft = 0
+        redraw()
+        cursdown()
+    fin
+end
+def editkey_11(key)
+    if key >= keyspace
+        return 1
+    elsif key == keydelete
+        return 1
+    elsif key == keyctrld
+        return 1
+    elsif key == keyctrlr
+        return 1
+    fin
+    return 0
+end
+def editline_11(key)
+    byte editstr[80]
+    word undoline
+
+    if (editkey_11(key))
+        flags = flags ? changed
+        memset($A0A0, @editstr, 80)
+        strcpy_20(strlinbuf:[cursrow], @editstr)
+        undoline = strlinbuf:[cursrow]
+        strlinbuf:[cursrow] = @editstr
+        repeat
+            if key >= keyspace
+                if key == keydelete
+                    if curscol > 0
+                        if curscol <= editstr
+                            memcpy(@editstr[curscol + 1], @editstr[curscol], editstr - curscol)
+                            editstr = editstr - 1
+                        fin
+                        curscol = curscol - 1
+                        cursoff()
+                        if cursx > 0
+                            cursx = cursx - 1
+                            drawrow_30(cursy, scrnleft, @editstr)
+                        else
+                            scrnleft = scrnleft - 1
+                            drawscrn_20(scrntop, scrnleft)
+                        fin
+                        curson()
+                    fin
+                elsif curscol < maxlnlen
+                    curscol = curscol + 1
+                    cursx   = cursx   + 1
+                    if flags & insmode
+                        if editstr < maxlnlen or editstr.maxlnlen == $A0
+                            editstr = editstr + 1
+                            if curscol >= editstr
+                                editstr = curscol
+                            else
+                                memcpy(@editstr[curscol], @editstr[curscol + 1], editstr - curscol)
+                            fin
+                        else
+                            curscol = curscol - 1
+                            cursx   = cursx   - 1
+                            key     = editstr[curscol]
+                            bell()
+                        fin
+                    else
+                        if curscol > editstr
+                            editstr = curscol
+                        fin
+                    fin
+                    editstr[curscol] = caseconv_11(key)
+                    cursoff()
+                    if cursx <= 39
+                        drawrow_30(cursy, scrnleft, @editstr)
+                    else
+                        scrnleft = scrnleft + 1
+                        cursx    = 39
+                        drawscrn_20(scrntop, scrnleft)
+                    fin
+                    curson()
+                else
+                    bell()
+                fin
+            elsif key == keyctrld
+                if curscol < editstr
+                    memcpy(@editstr[curscol + 2], @editstr[curscol + 1], editstr - curscol)
+                    editstr = editstr - 1
+                    cursoff()
+                    drawrow_30(cursy, scrnleft, @editstr)
+                    curson()
+                fin
+            elsif key == keyctrlr
+                strcpy_20(undoline, @editstr)
+                cursoff()
+                drawrow_30(cursy, scrnleft, @editstr)
+                curson()
+            fin
+            key = keyin_01()
+        until !editkey_11(key)
+        if editstr
+            strlinbuf:[cursrow] = newstr_11(@editstr)
+        else
+            strlinbuf:[cursrow] = @nullstr
+        fin
+        freestr_10(undoline)
+    fin
+    return key
+end
+def editmode
+    repeat
+        when editline_11(keyin_01())
+            is keyarrowup
+                cursup()
+            is keyarrowdown
+                cursdown()
+            is keyarrowleft
+                cursleft()
+            is keyarrowright
+                cursright()
+            is keyctrlw
+                pgup()
+            is keyctrlz
+                pgdown()
+            is keyctrla
+                pgleft()
+            is keyctrls
+                pgright()
+            is keyctrlq
+                curshome()
+            is keyctrle
+                cursend()
+            is keyctrlx
+                cutline()
+            is keyctrlv
+                pasteline()
+            is keyctrlo
+                drop openline_11(cursrow)
+                redraw()
+            is keyenter
+                if flags & insmode
+                    splitline()
+                else
+                    drop openline_11(cursrow + 1)
+                    cursdown()
+                    redraw()
+                fin
+            is keyctrlt
+                joinline()
+            is keyctrli
+                if flags & insmode
+                    flags = flags & #insmode
+                    curschr = ' '
+                else
+                    flags = flags ? insmode
+                    curschr = '+'
+                fin
+            is keyctrlc
+                if flags & uppercase
+                    txtlower()
+                else
+                    txtupper()
+                fin
+                redraw()
+            is keyescape
+                cursoff()
+                cmdmode()
+                redraw()
+        wend
+    until 0
+end
+;
+; Command mode
+;
+def prfiles_11(optpath)
+    byte path[64]
+    byte refnum
+    byte firstblk
+    byte entrylen, entriesblk
+    byte i, type, len
+    word entry, filecnt
+
+    if ^optpath
+        strcpy_20(optpath, @path)
+    else
+        drop getpfx_11(@path)
+        prstr(@path)
+        crout()
+    fin
+    refnum = open_21(@path, iobuffer);
+    if perr
+        return perr
+    fin
+    firstblk = 1
+    repeat
+        if read_31(refnum, databuff, 512) == 512
+            entry = databuff + 4
+            if firstblk
+                entrylen   = databuff.$23
+                entriesblk = databuff.$24
+                filecnt    = databuff:$25
+                entry      = entry + entrylen
+            fin
+            for i = firstblk to entriesblk
+                type = ^entry
+                if type <> 0
+                    len = type & $0F
+                    ^entry = len
+                    prstr(entry)
+                    if type & $F0 == $D0 ; Is it a directory?
+                        cout('/')
+                        len = len + 1
+                    fin
+                    for len = 20 - len downto 1
+                        cout(' ')
+                    next
+                    filecnt = filecnt - 1
+                fin
+                entry = entry + entrylen
+            next
+            firstblk = 0
+        else
+            filecnt = 0
+        fin
+    until filecnt == 0
+    drop close_11(refnum)
+    crout()
+    return 0
+end
+def striplead_20(strptr, chr)
+    while ^strptr and ^(strptr + 1) == chr
+        memcpy(strptr + 2, strptr + 1, ^strptr)
+        ^strptr = ^strptr - 1
+    loop
+end
+def parsecmd_11(strptr)
+    byte cmd
+
+    cmd = 0
+    striplead_20(strptr, ' ')
+    if ^strptr
+        cmd = ^(strptr + 1)
+        memcpy(strptr + 2, strptr + 1, ^strptr)
+        ^strptr = ^strptr - 1
+    fin
+    if ^strptr
+        striplead_20(strptr, ' ')
+    fin
+    return cmd
+end
+def chkchng_01
+    if flags & changed
+        prstr(@losechng)
+        if toupper_11(keyin_01()) == 'N'
+            crout()
+            return 0
+        fin
+        crout()
+    fin
+    return 1
+end
+def quit
+    if chkchng_01()
+        exit
+    fin
+end
+def cmdmode
+    byte slot
+    word cmdptr
+
+    clrscrn();
+    prstr(@version)
+    crout()
+    while 1
+        prstr(@txtfile)
+        cmdptr = rdstr($BA)
+        when toupper_11(parsecmd_11(cmdptr))
+            is 'A'
+                readtxt_10(cmdptr)
+                flags = flags ? changed
+            is 'R'
+                if chkchng_01()
+                    inittxtbuf()
+                    strcpy_20(cmdptr, @txtfile)
+                    readtxt_10(@txtfile)
+                    flags = flags & #changed
+                fin
+            is 'W'
+                if ^cmdptr
+                    strcpy_20(cmdptr, @txtfile)
+                fin
+                writetxt_10(@txtfile)
+                if flags & changed
+                fin
+                flags = flags & #changed
+            is 'Q'
+                quit()
+            is 'C'
+                drop prfiles_11(cmdptr)
+            is 'P'
+                drop setpfx_11(cmdptr)
+            is 'H'
+                if ^cmdptr
+                    slot = cmdptr.1 - '0'
+                else
+                    slot = 1
+                fin
+                printtxt_10(slot)
+            is 'E'
+                return
+            is 0
+                return
+            is 'N'
+                if chkchng_01()
+                    inittxtbuf()
+                    numlines = 1
+                    strcpy_20(@untitled, @txtfile)
+                fin
+            otherwise
+                bell()
+                cout('?')
+                crout()
+        wend
+        if perr
+            prstr(@errorstr)
+            drop romcall(perr, 0, 0, 0, $FDDA)
+        else
+            prstr(@okstr)
+        fin
+        crout()
+    loop
+end
+;
+; Init editor
+;
+if !(^machid & $80)
+    flags = uppercase ? shiftlock
+    keyin_01 = @keyin2_01
+else
+    keyin_01 = @keyin2e_01
+fin
+inittxtbuf()
+if ^argbuff
+    strcpy_20(argbuff, @txtfile)
+    prstr(@txtfile)
+    readtxt_10(@txtfile)
+else
+    numlines = 1
+fin
+curschr  = '+'
+flags = flags ? insmode
+drawscrn_20(scrntop, scrnleft)
+curson()
+editmode()
+done

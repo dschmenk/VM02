@@ -1,0 +1,317 @@
+VM02 V1.0 Design
+================
+Author: Dave Schmenk
+Date: 4/2/2010
+Revision: 1.3
+
+Introduction
+============
+VM02 is a Java compatible VM written in 6502 assembly language for the Apple II series of computers.  Everything has been implemented from scratch using the JVM specification and black-boxing the Sun JVM with sample code.  Certian aspects of the JVM have been simplified or removed to fit the target machine.  This document is an attempt to record the design of VM02 for other developers to come up to speed, as well as to jog the memory of the original developer who has a tendency to forget what he has done.
+
+VM02 has quite a diversity of technology.  Some is rather sophisticated and not deeply discussed.  Floating point operations, DVM implementation, IRQ support, and other details are left out, but a perusal of the source should answer most questions.
+
+The design document will follow the implementation of VM02 as that was how many decisions were made along the way.  Starting with the memory manager and class file loader which drives much of the following implementation through the class database, frame manager, thread scheduler, device drivers, and ending with DVM, the hope is that many questions can be answered by reading through this document.
+
+Before delving into the design, a little history is in order.  The genesis for VM02 starts way back with the development of Apple Pascal around 1978.  UCSD Pascal was brought to the Apple II and became one of the most powerful development environments for the fledging microcomputer market.  Indeed, Apple Pascal was the first real computer language I learned in 1979 (after toying with with a TRS-80 Model 1 in school).  Many years later, the retro-computing bug hit and I wanted to bring a modern, up-to-date programming environment to my favorite computer.  After thinking about developing my own custom VM and language, a post on comp.sys.apple2 from Oliver Schmidt about porting a very limited Java-like VM to the Apple II got me thinking.  Oliver's experiment was a success in that he got it working, but it was much too slow and cumbersome to be really useful.  I decided then that a real JVM was possible and the performance issues could be solved with a clever assembly language implementation.  The beginning of VM02 involved deciding what could be feasibly incorporated into a VM and what had to be left out.  Ultimately I picked 64 bit data types as the cut-off for functionality.  Everything else should be implemented in some fashion.  Lastly, a JVM is only part of the equation when it comes to supporting a language like Java.  Most of the language involves a huge library of classes that provide the functionality to be useful.  I have attempted to write the bare minimum of classes to make the Apple II a viable Java target.
+
+
+External Linkeage (global.inc)
+------------------------------
+Page 3 ($0300-$03EF) is used for external entrypoints into VM02.  Since the 6502 doesn't support indirect subroutine calls, the values have to be copied to a suitable location for calling.  DVM has an indirect call opcode to simplify calling VM02 from native methods.  Device drivers are accessed through function pointers as well as a few choice variables for global access.  These links will remain stable for all of version 1.
+
+
+Initiallization (vm02.s thread.s)
+---------------------------------
+Initialization is a process to get every module of VM02 ready to execute the main class.  All module's init code is called, then the inital class is searched for.  Either a command string can be passed in from a previous program, the existance of a STARTUP class, or the user is prompted for an initial class to execute.  The command string or command line is then parsed for parameters and installed into and argument string.  An initial thread is created and the name of the main class is pushed on the stack for the thread to load and call.  The thread is then started.  Execution returns to VM_EXIT after all threads have finished.  VM02 then reloads itself and begins the search again.  Command strings and return values can be passed from one class to the next to create an exec chain.
+
+
+Memory Management (memmgr.s fames.s ops.s sysclass.s)
+-----------------------------------------------------
+Even before the decision to implement a JVM, a memory manager had been worked out to provide a handle-based manager for a VM.  The reason was to allow for ease of garbage collection, memory flexibility, and eventually memory swapping to disk.  Memory blocks can be allocated, freed, moved, locked, and unlocked.  The memory handle table is defined at the top of main memory, right below ProDOS, in the 64K configuration.  The 128K VM places the handle table in the second bank of the AUX language card area.  The number of memory handles is a define in global.inc.  In the 64K configuration, the memory table takes up space in main memory so there is a tradeoff between the size of the table and free main memory.
+
+A memory handle is an entry in the handle table that points to the actual memory block, plus some flags in the low-order 3 bits.  These bits are masked off when converting to an address.  It also means that the memory blocks are multiples of 8 bytes.  An allocated memory block has a 4 byte header containing the size of the block, the reference count of the block, and an accessed flag.  A free block contains the size of the block and a handle to the next free block in the free list.  The free list header is located in zero page.  The smallest available memory block is thus 4 bytes (8 byte block minimum - 4 header bytes).  It makes sense to try and allocate blocks that are as large as possible to avoid wasting memory and handles, thus causing fragmentation.
+
+Memory blocks can be allocated, freed, locked, unlocked, and reference counted.  Memory can be optionally allocated at fixed addresses to support mapping the framebuffer or fullfilling the alignment requirements of ProDOS and other hardware/software.  Memory can be code or data.  In the 128K configuration, bytecode is actually stored in AUX memory, but the details are retained in a main memory block.  This gives the system enough flexibility to manage memory in a very constrained environment.
+
+In the apple2/ProDOS.java class is a method: ioAllocBuffer() which calls an internal VM02 routine to allocate a fixed memory block.  It actually scans from the bottom of memory to the top until it succeeds in allocating the block.  If it fails, it forces GC and tries again.  It will fail eventually, so it is best to allocate the IO buffer early on in the program to guarantee getting it.  The HGR2 buffer is allocated using the same call in apple2/AppleStuff.java, although it fails immediately if it can't get the memory.  VM02 uses it's own buffers for class loading and swapping that are independent of the Java class's file I/O.  All operate independently.  Java threads should use the Java synchronization features if doing I/O to the same file, otherwise they too are independent. The number of files open is only limited by available memory and ProDOS.
+
+Reference count incrementing is handled throught the VM, but reference decrementing is only handled through the object unreference routine (UNREF_OBJ) in sysclass.s.  Whenever a new value is written into a variable or a local method frame is destroyed, reference counts to the current values are decremented.  If the reference count goes to zero, then any objects made reference to by the object to be freed must also be decremented.  It can get quite recursive.  The finalize() method on any object to be freed is called immediately.  This way memory can be returned to the pool as quickly as possible.  Background memory collection is expensive both in time and space; VM02 has neither.  Reference counting goes hand-in-hand with garbage collecting.
+
+Garbage collection is discussed in more detail later, but briefly it combines adjacent free space and shifts free memory down in memory.  The concept is to keep allocated memory blocks as high up in memory as possible.  One reason is that the VM itself exists in low memory, right below the second hi-res page.  Keeping low memory free makes usage of the hi-res graphics more possible.  There is a routine called from the scheduler and any time free memory is exhausted to first combine any adjacent free space, the move and allocated blocks up in memory.  This process is repeated a given number of times.  If called from the memory allocator and it is unable to satisfy the request, an out-of-memory error will be thrown.  These algorithms can be combined with a build-optional demand swapping feature described next.
+
+Demand memory swapping to disk is supported through the use of a SWAP directory.  Handles are converted to filenames and the data is read/written from/to the file.  Accessed tags are incrementally cleared through the THREAD_YIELD routine.    The memory allocator will now call two swapping routines when RAM is exhausted.  The first will swap out all unaccessed blocks, the other will aggressively swap out all unlocked blocks.  The idle loop garbage collector will combine any free blocks, try to move free space to lower memory, and write out any blocks which have been unaccessed for some time.  Swap volumes are intelligently determined at init time.  RAM disks of sufficient size have precedence over hard media.  Finally, the SWAP directory is cleaned up at exit time.
+
+
+Strings (strpools.s)
+--------------------
+Strings in Jave are immutable - they don't change.  Whenever a change is made, a new String object is created.  VM02 works in concert with the memory manager to reference count strings.  Only one copy of a string is kept.  In VM02, if two strings are the same, their object references are the same too.  Only strings of 255 charcters or less are permitted, and they are only 8 bit characters (UTF8), so no unicode support.  Strings are hashed and searched through a linked list per hash table entry.  Efficient searching, adding, and deleting of strings is important.
+
+
+Class File Loader (classload.s class.inc)
+-----------------------------------------
+Class file loading is one of the most fundamental operations of VM02.  One of the most important requirements for VM02 was that it use the well defined Java Class File Format.  Many other small JVM implementations remove this requirement and create their own file format that eases the class field and offset resolution operations.  Luckily, ProDOS provides a fairly sophisticated file system for directory and file management.
+
+The Java Class File Format is available on-line and should be reviewed to understand the internals of VM02.  It is the basis for the single inheritence model of Java, as well as the exception and bytecode definitions.  The class file maps the Java class into a binary representation, similar to a .o file in UNIX, or a .OBJ in MS-DOS/Windows.  Linking occurs at runtime, and can be either lazy or immediate.  VM02 chooses the lazy linking method as it only allocates resources for a class when it is called.  This keeps the memory footprint as small as possible but can pause a running program to load referenced classes.  The class file has four major sections: the constant pool, the interfaces, the fields, and the methods.  Due to the way the class file is laid out, the size of the sections isn't known until each section is read in.  This creates a little difficulty in allocating a data structure to contain the full class.  Instead, the class loader allocates a data structure big enough to contain counts and handles for the interface descriptors, field descriptors, and method descriptors as well as the constant pool itself.  Each constant pool entry is 5 bytes: one type bye and 4 data bytes.  In the class file, they are dynamic in size, but to make the offset calculation easy, they are fixed in the class data structure.  All the other sections are read in order, allocating a memory block to hold each section's descriptors.  Method sections also call a code loader to install the method's code into the code manager (codemgr.s).  After all the sections have been successfully loaded, a check is made to see if the superclass has beenn loaded.  If not, the class loader is recursively called to load the superclass.  Once all superclasses are available, the fields and methods are fixed up based on the superclass.  This is probably the hardest code in all of VM02 to follow.  This is where the fundamentals of the inheritance model come in to play.  Fields shadow any superclass fields.  Static methods shadow any superclass methods, whereas virtual methods have to override any superclass virtual methods in a virtual method table.  This is not pretty code to write in 6502 assembly, it was rewritten in DVM code and makes following the code somewhat easier when you get accustomed to it.  Finally, any class initializer is called to set up the class.  Calling code asynchronously, as the class initializer is done, is covered in the frame manager code (frame.s).
+
+
+Class Class (classclass.s)
+--------------------------
+Class references are held in a table.  There can be no more than 128 classes loaded in a program.  With the other memory constraints of VM02, this shouldn't be a problem.  In fact, the default table size is currently 64 entries.  Class data strutures can be interrogated through the routines found in this file.  If the class data structure changes in the future, most of the changes can be limited to this file.  Java uses strings from the class file to name classes, methods, and fields.  Routines to search the class table and class structure to resolve the name and description are here.  These are called from the (ops.s) bytecode interpreter whenever method invokations are made or fields are accessed.  The interpreter will stick the handles resolved by the routines here into the class structure so that the string names will no longer have to be resolved, the handle will be used directly.
+
+
+Threads (thread.s)
+------------------
+Again, pre-emptive multithreading was a design requirement even before a JVM was settled on.  The Apple II is probably the least friendly to pre-emptive multi-threading of any computer.  The 6502 just doesn't fit well into a threaded environment, unless that environment is a VM.  Then, adding pre-emptive multi-threading to a virtual instruction set becomes pretty easy.  Since the 6502 will be interpreting the Java bytecodes, I simply implemented a byte counter after each interpreted bytecode and call the scheduler when it reaches zero.  The scheduler can also be called directly by way of THREAD_YIELD.  If an asynchronous event requires the scheduler to run immediately (such as an interrupt waking up a thread), the count can be set to one so that the scheduler will run after the current bytecode finishes up.  The scheduler itself has a table of threads which it scans looking for the best candidate to execute.  This table is fixed and represents the maximum threads in the system.  A define in global.inc sets the maximum number of threads (current default is 4).  Each thread has 20 bytes of zero page for the bytecode interpreter state plus the 6502 hardware stack.  Both are swapped during a thread re-schedule.  Only the active part of the 6502 stack is read/written which is rarely more than 16 bytes.  Swapping threads is pretty light-weight.  If there are no threads ready to run, the idle loop will call the garbage collector to iteratively do any collecting and swapping of unaccessed memory.  The GC will wait for a configurable time before starting, then it will delay between each iteration.  Threads can wait on I/O events, synchronized objects, or just sleep.  Threads wait on I/O by using a bitmask to identify which slot it is waiting on.  Multiple slots can be waited on by setting the appropriate bits.  The notifying slot will be returned to the thread in the accumulator (or multiple slots if more than one had pending I/O).  If a timeout is included, VM02 will wake the thread after the timeout expires with an InterruptedException.  Because the Apple II has no time base by default, it will estimate time based on the number of bytecodes interpreted.  This is a pretty coarse estimate, but is a good first order approximation.  The Apple IIc and any Apple II with a mouse card can use the VBL interrupt to establish a consistent time base.  Timing then becomes quite accurate, at least to the resolution of 60 Hz.  Other timing hardware can implement the time base with the addition of a device driver.
+
+
+Execution Frames and Code Manager (frames.s codemgr.s)
+------------------------------------------------------
+Whenever a thread of execution invokes a new method, a frame must be created to hold the local state for that method.  Conversely, when a method is exited it's frame must be broken down and cleaned up.  With Java and automatic garbage collection and exception handling, this becomes somewhat of an involved task.  There are two ways to invoke methods.  The most common is through the invoke bytecodes that call interfaces, static, and virtual methods.  The other way to call is asynchronously by way of class loading or finalizers.  Current state is pushed in a way that it can be restored when it exits.  Either way, the called method is checked for a native vs bytecode implementation.  Native, 6502 machine code, is then called directly without further ado, making native methods very lightweight.  For bytecode methods, the code manager is used to recall important details about the method so a stack frame can be allocated.  Once allocated, the current frame execution state is saved and the new frame is prepared for execution.  The parameters are pulled off the stack and copied into the local variables.  Object parameters get their reference count incremented.  Finally, all the local variable types are set to zero.
+
+When the method exits, the local variables are scanned for object references and reference count decremented.  If the method is returning due to an exception, then exception handling code is searched for and run if found.  If the method was asynchronous, the previous execution state is restored and returned to.  Realize that asynchronous method calls return to 6502 code (usually the class loader for <clinit>() or the object unreference routine for finalize()).
+
+
+Bytecode Interpreter (ops.s)
+----------------------------
+The Java bytecode interpreter is mostly located in the 2nd bank of the Language Card memory.  Due to the large size of the interpreter, some of the code lies in main memory.  Floating point instructions are optional although the are built by default.  They can be disabled by a define in global.inc, freeing up valuable main memory.  In the 128K configuration, bytecodes are be read from auxiliary memory.  Care must be taken to keep code that reference aux main memory in the language card.  Main memory code cannot directly read from aux main memory.  The unenhanced IIe doesn't like the aux memory mapped in when interrupts are enabled.  The same is true when accessing other tables in aux langauage card space (memmgr.s strpool.s classclass.s).  Interrupts are disabled whenever aux memory is accessed.
+
+The interpreter optimizes access to fields and methods by caching handles and offsets (classclass.s) in the constant pool the first time they are accessed.  The MSB will be set for cached values.  Class, field, and method reference code will check the MSB to determine if a full lookup is required.  With classes, this can lead to loading a class (and it's superclasses) the first time it is referenced.  Once a class is in memory, it can never be removed.
+
+The bytecode interpreter implements pre-emptive mutlithreading by calling the scheduler whenever opcount reaches zero.  Runtime errors and exceptions are implemented by asynchronously calling a class - apple2/SystemException, that will throw the exception associated with parameter.  This keeps all the exceptions themselves out of memory unless they are required.  The asynchronous call is described more in the frame manager.
+
+
+System Calls (sysclass.s)
+-------------------------
+VM02 provides a low level interface into the VM itself.  Memory $0300-$03E0 is a jump table to various routines, as well as the device drivers.  The apple2/vm02 class has an interface which provides a system level call into the VM or ROM, depending on the address.  Addresses below $0100 will be treated as calls through the jump table, not zero page calls as this makes no sense with VM02.  Global.inc contains the definitions of the jump table entries.
+
+
+Garbage Collection and Finalizers (memmgr.s sysclass.s)
+-------------------------------------------------------
+The UNREF_OBJECT routine is located here.  All object reference decrements are done here so that the recursive calls to unreference other objects can be somewhat managed.  This is one of the most nerve-wracking routines you will ever encounter.  Instance field references and array references are recursively dereferenced.  Oh my head.
+
+GC and finalizers are closely related in VM02.  Memory is reference counted and reclaimed immediately when the count reaches zero.  VM02 is extremely resource constrained, so deferring GC makes little sense.  When the memory being freed is an object, it's finalizer is asynchronously called first.  Once the finalizer is called, all the object referenced from this object have their reference counts decremented, and recursively freed if zero.  This code gets quite messy with all the possible recursion.  Care must be taken when modifying any of it.
+
+It must be noted that reference counted GC is hardly robust.  It is quite easy to have a dangling reference keep memory around, or mutually reference objects to never be freed (even if indirectly referenced).  One can help the GC recover memory by explicitly setting unused references to null.  This is been known to help other GC implementations as well, so isn't as horrible and anti-GC as it sounds.
+
+
+Exceptions (except.s)
+---------------------
+Exceptions are handled through a combination of the bytecode interpreter and the frame manager.  When built with DEBUG enabled, VM02 will spit out a stack trace with a little extra information.  VM02 doesn't incorporate all the exception logging and trace information that a real JVM does.
+
+
+Device Drivers and I/O (io.s *drvr.s)
+-----------------------------
+Device drivers were one of the last things added to VM02.  In the middle of functional development, it was clear that adding support for additional hardware was needed but ProDOS didn't provide a driver model and VM02 didn't want to be loaded down with static hardware support.  So, basic device driver laoding was added.  Interrupts are fully supported through a pseudo-priority scheme that scans lower numbered slots first.  Read/write and control entry points in the VM02 jump table call into the device drivers for each slot.  Every slot has a real or dummy control routine that will identify the device (or no device) in that slot.  One requirement of the device driver is address independence.  The driver can be laoded into any avaiable memory, so it must be written position independent.  With the very simple functions required of the device driver, this isn't too much of a problem.  Some fixups can also be done at driver load time (mousedrvr.s)  Look to the included drivers for examples.  Interrupts from devices can wake up threads waiting on I/O for that slot.
+
+Device I/O is abstracted using a slot index, not unlike file descriptors in unix.  However, the Apple only has seven slots so things are a little simpler.  In io.s, all the devices VM02 supports with a device driver are scanned and the driver is attached to whichever slot the hardware is found.  Entries in the LINK page are fixed up to point to the driver entrypoints for that slot (global.inc).  The only slot that is hard-coded is slot #3, defined as the console.  Java code can interrogate each slot in turn, looking for a unique ID (defined in global.h) for the type of hardware it's looking for.  Once the slot(s) is identified, it can proceed to make IOCTL calls and READ/WRITE calls.  The calls are handled in a device dependent way - the mouse driver will respond to READ differently than a serial port driver.  A thread will block waiting for input if nothing is available.  Output usually waits for available space to write before returning.  A thread can wait on multiple devices at the same time.  See TestSelect.java to see how a thread can wait on keyboard and mouse input simultaneously.  A bitmask is returned signaling which slot(s) have available input.  A thread can also set a timeout before waiting on input.  If the timeout occurs before input arrives, an InterruptedException will be generated.  Again, TestSelect.java is a good example as well as org/vm02/cui/cui.java.
+
+One nice thing that the architecture of VM02 allowed was to treat the Uthernet card just like an interrupting device.  Devices are polled during THREAD_YIELD if no timer hardware is installed, originally to have a type-ahead buffer for the keyboard.  I tweaked it slightly when I added the Uthernet driver to generalize it for all devices.  If timer hardware (like the mouse) exists, everything gets polled 60 times a second - regardless wether they generate IRQs or not.  The Uthernet driver checks for any new packets when finished servicing the current packet to keep bandwidth high.
+
+Dave's Virtual Machine (dvm.s)
+------------------------------
+In order to overcome some deficencies of the 6502 processor, namely 16 bit operations and position independence, a small pseudo, or virtual, machine was written.  Somewhat of a cross between the Pascal p-machine and Sweet-16, it offers a compact code representation with full 16 bit operation and position independence.  This allows non-time critical code to be implemented in a manner to take up less space, be moveable (and swappable), or both.  The file class loader and fixed-address memory allocater was re-implemented using DVM to reduce space, simplify code, and allow it to be swapped in and out when needed.  See below for a thorough description.
+
+I originally pulled VM02 back out of mothballs to add Uthernet and TCP/IP support.  I quickly ran out of memory, so that is why I had to implement swapping.  What a round-about way to get networking!  It quickly became apparent that a Java solution to TCP/IP would be just too big.  My ARP test pretty much consumes a 64K machine.  So DVM to the rescue.  VM02 has a requirement of position independent code for native methods - doing an entire TCP/IP stack in 6502 like that would be killer.  I created DVM to fill just such a problem  The screen driver for the CUI classes (org/vm02/cui/cuiDriver.clasm) is written in a DVM+6502 hybrid, so I'm pretty confident in it's ability.  6502 code can be easily inserted for inner loop performance critical stuff.
+
+
+Object Reference Definition
+===========================
+Object references are 32 bits, just like the other basic data types, int and float.  The value is broken up into three parts.  The lower 16 bits are the memory handle to the object memory.  The next higher byte is the class index, and the highest byte is class specific type data.  For strings, it's the hash value of the string.  For arrays, it's the type and dimension of the array.  If a class doesn't have a specific use for the fourth byte, just replicate the class index byte - this makes it easy to identify object handles when debugging.
+
+
+Psuedo Machine for VM coding
+============================
+Because the JVM is such a large app, a more sophisticated and compact code representation was needed to make it fit in the limited space of the Apple II.  Macros were created to assemble into a p-code that is interpreted by yet another VM.  Non-performance critical code is interpreted to save space.  Native methods have access to DVM through a LINK_TABLE entrypoint.  This is quite beneficial as native methods require position independence.  Look at org/vm02/cui/cuiDriver.clasm for a sophisticated DVM method implementation.  It is also quite easy to intersperse 6502 code inside DVM blocks.  Use DVM for the position independence and overall control, 6502 for tight inner loops.
+
+The p-code is defined as such:
+
+$00-$07/$80-$87
+LD0B  (Load 0 Byte)                     - load zero value byte on stack
+LD0W  (Load 0 Word)                     - load zero value word on stack
+LD1B  (Load 1 Byte)                     - load one value byte on stack
+LD1W  (Load 1 Word)                     - load one value word on stack
+LD2B  (Load 2 Byte)                     - load two value byte on stack
+LD2W  (Load 2 Word)                     - load two value word on stack
+LD3B  (Load 3 Byte)                     - load three value byte on stack
+LD3W  (Load 3 Word)                     - load three value word on stack
+LD4B  (Load 4 Byte)                     - load four value byte on stack
+LD4W  (Load 4 Word)                     - load four value word on stack
+LD5B  (Load 5 Byte)                     - load five value byte on stack
+LD5W  (Load 5 Word)                     - load five value word on stack
+DUPB  (DUPlicate Byte)                  - copy top byte on stack
+DUPW  (DUPlicate Word)                  - copy top word on stack
+DUP2B (DUPlicate 2 Bytes)               - copy top two bytes on stack (same as DUPW)
+DUP2W (DUPlicate 2 Words)               - copy top two words on stack
+
+$08-$0F/$88-$8F
+SWAPB (SWAP Bytes)                      - swap bytes on stack
+SWAPW (SWAP Words)                      - swap words on stack
+LDCB  (LoaD Constant Byte)              - load constant value byte onto stack
+LDCW  (LoaD Constant Word)              - load constant value word onto stack
+LDZPB (LoaD Zero Page Byte)             - load zero page memory onto stack
+LDZPW (LoaD Zero Page Word)             - load zero page memory onto stack
+LDB   (LoaD Byte)                       - load absolute memory onto stack
+LDW   (LoaD Word)                       - load absolute memory onto stack
+LDPB  (LoaD Pointer Byte)               - load memory thru pointer+offset onto
+                                          stack
+LDPW  (LoaD Pointer Word)               - load memory thru pointer+offset onto
+                                          stack
+LDPINCB (LoaD Pointer Inc Byte)         - load memory thru pointer onto stack
+                                          and increment pointer
+LDPINCW (LoaD Pointer Inc Word)         - load memory thru pointer onto stack
+                                          and increment pointer
+LDPDECB (LoaD Pointer Dec Byte)         - load memory thru pointer onto stack
+                                          and decrement pointer
+LDPDECW (LoaD Pointer Dec Word)         - load memory thru pointer onto stack
+                                          and decrement pointer
+LDINDB (LoaD INDirect Byte)             - load memory thru pointer from stack
+                                          onto stack
+LDINDW (LoaD INDirect Word)             - load memory thru pointer from stack
+                                          onto stack
+
+$10-$17/$90-$97
+POPB  (POP Byte)                        - remove top byte on stack
+POPW  (POP Word)                        - remove top word on stack
+POP2B (POP 2 Bytes)                     - remove top two bytes on stack (POPW)
+POP2W (POP 2 Words)                     - remove top two words on stack
+STZPB (STore Zero Page Byte)            - store zero page memory from stack
+STZPW (STore Zero Page Word)            - store zero page memory from stack
+STB   (STore Byte)                      - store absolute memory from stack
+STW   (STore Word)                      - store absolute memory from stack
+STPB  (STore Pointer Byte)              - store memory thru pointer+offset from
+                                          stack
+STPW  (STore Pointer Word)              - store memory thru pointer+offset from
+                                          stack
+STPINCB (STore Pointer INC Byte)        - store memory thru pointer from stack
+                                          and increment pointer
+STPINCW (STore Pointer INC Word)        - store memory thru pointer from stack
+                                          and increment pointer
+STPDECB (STore Pointer DEC Byte)        - store memory thru pointer from stack
+                                          and decrement pointer
+STPDECW (STore Pointer DEC Word)        - store memory thru pointer from stack
+                                          and decrement pointer
+STINDB (STore INDirect Byte)            - store memory thru pointer, both from
+                                          stack
+STINDW (STore INDirect Word)            - store memory thru pointer, both from
+                                          stack
+
+$18-$1F/$98-$9F
+ZEXTB (Zero EXTend Byte)                - zero extend byte to word
+SEXTB (Sign EXTend Byte)                - sign extend byte to word
+NEGB  (NEGate Byte)                     - negate top byte on stack
+NEGW  (NEGate Word)                     - negate top word on stack
+NOTB  (NOT Byte)                        - not top byte on stack
+NOTW  (NOT Word)                        - not top word on stack
+ADDB  (ADD Byte)                        - add top bytes on stack
+ADDW  (ADD Word)                        - add top words on stack
+SUBB  (SUBtract Byte)                   - add top bytes on stack
+SUBW  (SUBtract Word)                   - add top words on stack
+ANDB  (AND Bytes)                       - and top bytes on stack
+ANDW  (AND Words)                       - and top words on stack
+ORB   (OR Bytes)                        - or top bytes on stack
+ORW   (OR Words)                        - or top words on stack
+XORB  (XOR Bytes)                       - xor top bytes on stack
+XORW  (XOR Words)                       - xor top words on stack
+
+$20-$27/$A0-$A7
+BRZB  (BRanch Zero Byte)                - branch byte on stack zero
+BRZW  (BRanch Zero Word)                - branch word on stack zero
+BRNZB (BRanch Not Zero Byte)            - branch byte on stack not zero
+BRNZW (BRanch Not Zero Word)            - branch word on stack not zero
+BRPOSB (BRanch Positive Byte)           - branch byte on stack positive
+BRPOSW (BRanch Positive Word)           - branch word on stack positive
+BRNEGB (BRanch NEGative Byte)           - branch byte on stack negative
+BRNEGW (BRanch NEGative Word)           - branch word on stack negative
+BREQUB (BRanch EQUal Bytes)             - branch if top bytes equal
+BREQUW (BRanch EQUal Words)             - branch if top words equal
+BRNEQB (BRanch Not EQual Bytes)         - branch if top bytes not equal
+BRNEQW (BRanch Not EQual Words)         - branch if top words not equal
+BRGTB (BRanch Greater Than Bytes)       - branch if top-1 byte greater than top
+BRGTW (BRanch Greater Than Words)       - branch if top-1 word greater than top
+BRLEB (BRanch Less than or Equal Bytes) - branch if top-1 byte less or equal than top
+BRLEW (BRanch Less than or Equal Words) - branch if top-1 word less or equal than top
+
+$28-$2F/$A8-$AF
+BRAB  (BRanch Above Bytes)              - branch if top-1 byte bigger than top
+BRAW  (BRanch Above Words)              - branch if top-1 word bigger than top
+BRBEB (BRanch Below or Equal Bytes)     - branch if top-1 byte bigger than top
+BRBEW (BRanch Below or Equal Words)     - branch if top-1 word bigger than top
+BRNCH (BRaNCH)                          - branch to offset
+""
+DECJNZB (DECrement memory Jump Not Zero Byte) - decrement memory byte and
+                                                jump not zero
+DECJNZW (DECrement memory Jump Not Zero Word) - decrement memory word and
+                                                jump not zero
+SHLB  (SHift Left Byte)                 - shift byte on stack left
+SHLW  (SHift Left Word)                 - shift word on stack left
+SHRB  (SHift Right Byte)                - shift byte on stack right
+SHRW  (SHift Right Word)                - shift word on stack right
+INCRB (INCRement Byte)                  - increment byte on stack
+INCRW (INCRement Word)                  - increment word on stack
+DECRB (DECRement Byte)                  - decrement byte on stack
+DECRW (DECRement Word)                  - decrement word on stack
+
+$30-$37/$B0-$B7
+EXIT  (EXIT)                            - exit VM
+""
+JUMP  (JUMP)                            - jump to address
+JUMPIND (JUMP)                          - jump to address on stack
+CALL  (CALL)                            - call subroutine address
+CALLIND (CALL)                          - call subroutine address on stack
+RET   (RETurn)                          - return from subroutine
+""
+CALL_02 (CALL 6502)                     - call 6502 subroutine address
+CALLIND_02 (CALL 6502)                  - call 6502 subroutine address on stack
+SWTCHB (SWiTCH Byte)                    - switch to matching byte value on stack
+SWTCHW (SWiTCH Word)                    - switch to matching word value on stack
+
+
+This is what an example DVM program looks like that fills the hi-res screen in an incrementing value until a key is pressed:
+
+	.INCLUDE	"dvm.inc"
+
+HRPTR	=	$60
+
+	.CODE
+	
+	LDX	#$FF
+	TXS
+	DVM_BEGIN
+	CALL	GRAPHMODE	; BASIC CALL TO SUBROUTINE
+	LD0B		; SET INITIAL VALUE TO ZERO
+	STB	HRVAL
+HRFILL:	LDCW	$4000	; HR ADDRESS
+	STZPW	HRPTR	; STORE IN ZP
+	LDCW	$1000	; HR SIZE IN WORDS
+	STW	HRCOUNT
+	LDB	HRVAL
+	DUPB		; EXPAND FILL TO WORD SIZE
+HRLOOP:	DUPW
+	STPIW	(HRPTR)	; FILL SCREEN A WORD AT A TIME
+	DECJNZW	HRCOUNT, HRLOOP	; HANDY LOOP OPCODE
+	POPB
+	INCRB
+	STB	HRVAL
+	LDB	$C000	; CHECK KEYBOARD
+	BRPOSB 	HRFILL
+	LDB	$C010	; CLEAR STROBE
+	POPB		; THROW AWAY VALUE
+	LDCW	TEXTMODE	; INDIRECT CALL TO SUBROUTINE
+	CALLIND		; CALL ADDRESS IS ABSOLUTE
+	JUMP	HREXIT	; SIGNED 16 BIT OFFSET DEST
+GRAPHMODE:	LDB	$C057
+	POPB
+	LDB	$C050
+	POPB
+	LDB	$C055
+	POPB
+	RET
+TEXTMODE:	DVM_END		; POP OUT OF DVM FOR THINGS
+	LDA	$C051	; BETTER DONE IN 6502
+	LDA	$C054
+	DVM_BEGIN
+	RET
+HREXIT:	DVM_END
+	RTS
+HRVAL:	.BYTE	0
+HRCOUNT:	.WORD	0

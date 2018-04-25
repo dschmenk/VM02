@@ -1,0 +1,52 @@
+;*
+;* CLASS FILE array.class
+;*
+	.BYTE	$CA,$FE,$BA,$BE	; MAGIC
+	.BYTE	$00,$00	; MINOR 0
+	.BYTE	$00,$31	; MAJOR 49
+;*
+;* CONSTANT POOL
+;*
+	.BYTE	$00,$05	; CONST POOL COUNT 5
+;* CONST POOL INDEX 1
+	.BYTE	07	; CLASS
+	.BYTE	$00,$03	; #3
+;* CONST POOL INDEX 2
+	.BYTE	07	; CLASS
+	.BYTE	$00,$04	; #4
+;* CONST POOL INDEX 3
+	.BYTE	$01	; UTF8
+	.BYTE	$00,$01	; STRLEN
+	.BYTE	"]"
+;* CONST POOL INDEX 4
+	.BYTE	$01	; UTF8
+	.BYTE	$00,$10	; STRLEN
+	.BYTE	"java/lang/Object"
+;*
+;* ACCESS FLAGS
+;*
+	.BYTE	$00,$21	; 0x0021
+;*
+;* THIS CLASS
+;*
+	.BYTE	$00,$01	; #1
+;*
+;* SUPER CLASS
+;*
+	.BYTE	$00,$02	; #2
+;*
+;* INTERFACES
+;*
+	.BYTE	$00,$00	; IFACE COUNT 0
+;*
+;* FIELDS
+;*
+	.BYTE	$00,$00	; FIELD COUNT 0
+;*
+;* METHODS
+;*
+	.BYTE	$00,$00	; METHOD COUNT 0
+;*
+;* GLOBAL ATTRIBUTES
+;*
+	.BYTE	$00,$00	; ATTRIB COUNT 0

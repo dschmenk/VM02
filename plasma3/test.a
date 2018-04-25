@@ -1,0 +1,177 @@
+; ACME COMPATIBLE OUTPUT
+_SEGBEGIN 
+	!WORD	_SEGEND-_SEGBEGIN	; LENGTH OF HEADER + CODE/DATA + BYTECODE SEGMENT
+	!WORD	$DA7E			; MAGIC #
+	!WORD	_SUBSEG			; BYTECODE SUB-SEGMENT
+; 001: ;
+; 002: ; Declare all imported modules and their data/functions.
+; 003: ;
+; 004: import stdlib
+	; DCI STRING: STDLIB
+	!BYTE	$D3,$D4,$C4,$CC,$C9,$42
+; 005:   predef cls, gotoxy, puts, putc
+					; cls -> X000
+					; gotoxy -> X001
+					; puts -> X002
+					; putc -> X003
+; 006: end
+; 007: ;
+; 008: ; Predeclare and functions called before defined.
+; 009: ;
+; 010: predef main
+	!BYTE	$00			; END OF MODULE DEPENDENCIES
+; 011: ;
+; 012: ; Declare all global variables for this module.
+; 013: ;
+; 014: byte hello[] = "Hello, world.\n\n"
+_D005 					; hello[] = "Hello, world.\n\n"
+	!BYTE	$0F
+	!BYTE	$48,$65,$6C,$6C,$6F,$2C,$20,$77
+	!BYTE	$6F,$72,$6C,$64,$2E,$0A,$0A
+; 015: word defptr  = main
+_D006 					; defptr  = main
+_F000 	!WORD	_C000
+; 016: ;
+; 017: ; Define functions.
+; 018: ;
+; 019: 
+; 020: export def ascii
+_SUBSEG 				; BYTECODE STARTS
+_C001 					; ascii()
+; 021:   byte i
+					; i -> [2]
+; 022:   cls()
+	!BYTE	$58,$03,$00		; ENTER	3,0
+	!BYTE	$54			; CALL	_X000
+_F001 	!WORD	0		
+	!BYTE	$30			; DROP
+; 023:   for i = 32 to 127
+	!BYTE	$2A,$20			; CB	32
+_B001 
+	!BYTE	$6C,$02			; DLB	[2]
+	!BYTE	$2A,$7F			; CB	127
+	!BYTE	$3A			; BRGT	_B000
+	!WORD	_B000-*
+	!BYTE	$0C			; INCR
+; 024:     putc(i)
+	!BYTE	$64,$02			; LLB	[2]
+	!BYTE	$54			; CALL	_X003
+_F002 	!WORD	0		
+	!BYTE	$30			; DROP
+; 025:   next
+	!BYTE	$50			; BRNCH	_B001
+	!WORD	_B001-*
+_B000 
+	!BYTE	$30			; DROP
+; 026: end
+	!BYTE	$00			; ZERO
+	!BYTE	$5A			; LEAVE
+; 027: 
+; 028: export def main
+_C000 					; main()
+; 029:   cls()
+	!BYTE	$54			; CALL	_X000
+_F003 	!WORD	0		
+	!BYTE	$30			; DROP
+; 030:   gotoxy(35,15)
+	!BYTE	$2A,$23			; CB	35
+	!BYTE	$2A,$0F			; CB	15
+	!BYTE	$54			; CALL	_X001
+_F004 	!WORD	0		
+	!BYTE	$30			; DROP
+; 031:   return puts(@hello)
+	!BYTE	$26			; LA	_D005
+_F005 	!WORD	_D005		
+	!BYTE	$54			; CALL	_X002
+_F006 	!WORD	0		
+	!BYTE	$5C			; RET
+; 032: end
+; 033: 
+; 034: export def indirect
+_C002 					; indirect()
+; 035:   word mainptr
+					; mainptr -> [2]
+; 036:   mainptr = @main
+	!BYTE	$58,$04,$00		; ENTER	4,0
+	!BYTE	$26			; LA	_C000
+_F007 	!WORD	_C000		
+	!BYTE	$76,$02			; SLW	[2]
+; 037:   mainptr()
+	!BYTE	$28,$02			; LLA	[2]
+	!BYTE	$56			; ICAL
+	!BYTE	$30			; DROP
+; 038: end
+	!BYTE	$00			; ZERO
+	!BYTE	$5A			; LEAVE
+; 039: 
+; 040: done
+_SEGEND 
+;
+; RE-LOCATEABLE DICTIONARY
+;
+	!BYTE	$02			; CODE TABLE FIXUP
+	!WORD	_C000		
+	!BYTE	$00
+	!BYTE	$02			; CODE TABLE FIXUP
+	!WORD	_C001		
+	!BYTE	$00
+	!BYTE	$02			; CODE TABLE FIXUP
+	!WORD	_C002		
+	!BYTE	$00
+	!BYTE	$81			; INTERNAL FIXUP
+	!WORD	_F000		
+	!BYTE	$00
+	!BYTE	$91			; EXTERNAL FIXUP
+	!WORD	_F001		
+	!BYTE	0			; ESD INDEX
+	!BYTE	$91			; EXTERNAL FIXUP
+	!WORD	_F002		
+	!BYTE	3			; ESD INDEX
+	!BYTE	$91			; EXTERNAL FIXUP
+	!WORD	_F003		
+	!BYTE	0			; ESD INDEX
+	!BYTE	$91			; EXTERNAL FIXUP
+	!WORD	_F004		
+	!BYTE	1			; ESD INDEX
+	!BYTE	$81			; INTERNAL FIXUP
+	!WORD	_F005		
+	!BYTE	$00
+	!BYTE	$91			; EXTERNAL FIXUP
+	!WORD	_F006		
+	!BYTE	2			; ESD INDEX
+	!BYTE	$81			; INTERNAL FIXUP
+	!WORD	_F007		
+	!BYTE	$00
+	!BYTE	$00			; END OF RLD
+;
+; EXTERNAL/ENTRY SYMBOL DICTIONARY
+;
+	; DCI STRING: CLS
+	!BYTE	$C3,$CC,$53
+	!BYTE	$10			; EXTERNAL SYMBOL FLAG
+	!WORD	0			; ESD INDEX
+	; DCI STRING: GOTOXY
+	!BYTE	$C7,$CF,$D4,$CF,$D8,$59
+	!BYTE	$10			; EXTERNAL SYMBOL FLAG
+	!WORD	1			; ESD INDEX
+	; DCI STRING: PUTS
+	!BYTE	$D0,$D5,$D4,$53
+	!BYTE	$10			; EXTERNAL SYMBOL FLAG
+	!WORD	2			; ESD INDEX
+	; DCI STRING: PUTC
+	!BYTE	$D0,$D5,$D4,$43
+	!BYTE	$10			; EXTERNAL SYMBOL FLAG
+	!WORD	3			; ESD INDEX
+	; DCI STRING: MAIN
+	!BYTE	$CD,$C1,$C9,$4E
+	!BYTE	$08			; ENTRY SYMBOL FLAG
+	!WORD	_C000		
+	; DCI STRING: ASCII
+	!BYTE	$C1,$D3,$C3,$C9,$49
+	!BYTE	$08			; ENTRY SYMBOL FLAG
+	!WORD	_C001		
+	; DCI STRING: INDIRECT
+	!BYTE	$C9,$CE,$C4,$C9,$D2,$C5,$C3,$54
+	!BYTE	$08			; ENTRY SYMBOL FLAG
+	!WORD	_C002		
+	!BYTE	$00			; END OF ESD

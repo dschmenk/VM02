@@ -1,0 +1,2850 @@
+;
+; Global constants
+;
+const FALSE             = 0
+const TRUE              = !FALSE
+;
+; Data and text buffer constants
+;
+const iobuffer          = $0800
+const codebuff          = $6000
+const codebuffsz        = $5000
+const argbuff           = $2006
+const inbuff            = $0200
+const instr             = $01FF
+byte  inref
+;byte  emptystk
+;
+; Symbol table variables
+;
+const idglobal_tblsz    = $0800
+const idlocal_tblsz     = $0200
+const idglobal_tbl      = $1000
+const idlocal_tbl       = $1800
+const ctag_max          = 768
+const ctag_value        = $1A00
+const ctag_flags        = $0D00
+const idval             = 0
+const idtype            = 2
+const idname            = 3
+const idrecsz           = 4
+word globals            = 0
+word datasize           = 0
+word lastglobal
+byte locals             = 0
+word framesize          = 0
+word lastlocal
+const resolved          = 1
+const is_ctag           = $8000
+const mask_ctag         = $7FFF
+word codetag            = -1
+word codeptr
+word entrypoint         = 0
+byte lastop             = $FF
+byte perr
+;
+; String variables
+;
+byte version[]          = "PLASMA ][ EXECUTIVE VERSION 0.8 "
+byte donemsg[]          = "EXECUTION COMPLETE.  PRESS A KEY..."
+byte badfile[]          = "FILE NOT FOUND"
+byte brkmsg[] 			= "CTRL-C BREAK"
+byte stkovflwmsg[] 		= "STACK OVERFLOW/UNDERFLOW ERROR"
+;
+; Tokens
+;
+const ID_TKN            = $D6 ; V
+const CHR_TKN           = $C3 ; C
+const INT_TKN           = $C9 ; I
+const STR_TKN           = $D3 ; S
+const EOL_TKN           = $02
+const EOF_TKN           = $01
+const ERR_TKN           = $00
+;
+; Binary operand operators
+;
+const SET_TKN           = $BD ; =
+const SETLIST_TKN       = $B9 ; =,
+const ADD_TKN           = $AB ; +
+const SUB_TKN           = $AD ; -
+const MUL_TKN           = $AA ; *
+const DIV_TKN           = $AF ; /
+const MOD_TKN           = $A5 ; %
+const OR_TKN            = $BF ; ?
+const EOR_TKN           = $DE ; ^
+const AND_TKN           = $A6 ; &
+const SHR_TKN           = $D2 ; R
+const SHL_TKN           = $CC ; L
+const GT_TKN            = $BE ; >
+const GE_TKN            = $C8 ; H
+const LT_TKN            = $BC ; <
+const LE_TKN            = $C2 ; B
+const NE_TKN            = $D5 ; U
+const EQ_TKN            = $C5 ; E
+const LOGIC_AND_TKN     = $CE ; N
+const LOGIC_OR_TKN      = $CF ; O
+;
+; Unary operand operators
+;
+const AT_TKN            = $C0 ; @
+const DOT_TKN           = $AE ; .
+const COLON_TKN         = $BA ; :
+const NEG_TKN           = $AD ; -
+const COMP_TKN          = $A3 ; #
+const LOGIC_NOT_TKN     = $A1 ; !
+const BPTR_TKN          = $DE ; ^
+const WPTR_TKN          = $AA ; *
+const INC_TKN           = $C1 ; A
+const DEC_TKN           = $C4 ; D
+;
+; Enclosure tokens
+;
+const OPEN_PAREN_TKN    = $A8 ; (
+const CLOSE_PAREN_TKN   = $A9 ; )
+const OPEN_BRACKET_TKN  = $DB ; [
+const CLOSE_BRACKET_TKN = $DD ; ]
+;
+; Misc. tokens
+;
+const COMMA_TKN         = $AC ; ,
+const COMMENT_TKN       = $BB ; ;
+;
+; Keyword tokens
+;
+const CONST_TKN         = $80
+const BYTE_TKN          = $81
+const WORD_TKN          = $82
+const IF_TKN            = $83
+const ELSEIF_TKN        = $84
+const ELSE_TKN          = $85
+const FIN_TKN           = $86
+const END_TKN           = $87
+const WHILE_TKN         = $88
+const LOOP_TKN          = $89
+const CASE_TKN          = $8A
+const OF_TKN            = $8B
+const DEFAULT_TKN       = $8C
+const ENDCASE_TKN       = $8D
+const FOR_TKN           = $8E
+const TO_TKN            = $8F
+const DOWNTO_TKN        = $90
+const STEP_TKN          = $91
+const NEXT_TKN          = $92
+const REPEAT_TKN        = $93
+const UNTIL_TKN         = $94
+const IFUNC_TKN         = $95
+const NFUNC_TKN         = $96
+const DROP_TKN          = $97
+const DONE_TKN          = $98
+const RETURN_TKN        = $99
+const BREAK_TKN         = $9A
+const START_TKN         = $9B
+const EXIT_TKN          = $9C
+const EVAL_TKN          = $9D
+const FUNC_TKN          = $9E
+;
+; Types
+;
+const CONST_TYPE        = $01
+const BYTE_TYPE         = $02
+const WORD_TYPE         = $04
+const VAR_TYPE          = $06 ; (WORD_TYPE | BYTE_TYPE)
+const FUNC_TYPE         = $08
+const FUNC_CONST_TYPE   = $09
+const ADDR_TYPE         = $0E ; (VAR_TYPE | FUNC_TYPE)
+const LOCAL_TYPE        = $10
+const BPTR_TYPE         = $20
+const WPTR_TYPE         = $40
+const PTR_TYPE          = $60 ; (BPTR_TYPE | WPTR_TYPE)
+const XBYTE_TYPE        = $22 ; (BPTR_TYPE | BYTE_TYPE)
+const XWORD_TYPE        = $44 ; (WPTR_TYPE | WORD_TYPE)
+const STR_TYPE          = $80
+;
+; Keywords
+;
+byte keywrds[]
+byte                    = "IF",     IF_TKN
+byte                    = "TO",     TO_TKN
+byte                    = "IS",     OF_TKN
+byte                    = "OR",     LOGIC_OR_TKN
+byte                    = "FOR",    FOR_TKN
+byte                    = "FIN",    FIN_TKN
+byte                    = "DEF",    IFUNC_TKN
+byte                    = "END",    END_TKN
+byte                    = "AND",    LOGIC_AND_TKN
+byte                    = "NOT",    LOGIC_NOT_TKN
+byte                    = "BYTE",   BYTE_TKN
+byte                    = "WORD",   WORD_TKN
+byte                    = "DROP",   DROP_TKN
+byte                    = "ELSE",   ELSE_TKN
+byte                    = "NEXT",   NEXT_TKN
+byte                    = "WHEN",   CASE_TKN
+byte                    = "LOOP",   LOOP_TKN
+byte                    = "FUNC",   FUNC_TKN
+byte                    = "STEP",   STEP_TKN
+byte                    = "EXIT",   EXIT_TKN
+byte                    = "DONE",   DONE_TKN
+byte                    = "WEND",   ENDCASE_TKN
+byte                    = "CONST",  CONST_TKN
+byte                    = "ELSIF",  ELSEIF_TKN
+byte                    = "WHILE",  WHILE_TKN
+byte                    = "UNTIL",  UNTIL_TKN
+byte                    = "BREAK",  BREAK_TKN
+byte                    = "OTHER",  DEFAULT_TKN
+byte                    = "DOWNTO", DOWNTO_TKN
+byte                    = "REPEAT", REPEAT_TKN
+byte                    = "DEFOPT", NFUNC_TKN
+byte                    = "RETURN", RETURN_TKN
+byte                    = $FF
+;
+; Mathematical ops
+;
+const bops_tblsz        = 18 ; minus 1
+byte bops_tbl[]         ; Highest precedence
+byte                    = MUL_TKN, DIV_TKN, MOD_TKN
+byte                    = ADD_TKN, SUB_TKN
+byte                    = SHR_TKN, SHL_TKN
+byte                    = AND_TKN
+byte                    = EOR_TKN
+byte                    = OR_TKN
+byte                    = GT_TKN, GE_TKN, LT_TKN, LE_TKN
+byte                    = EQ_TKN, NE_TKN
+byte                    = LOGIC_AND_TKN
+byte                    = LOGIC_OR_TKN
+byte                    = COMMA_TKN
+                        ; Lowest precedence
+byte bops_prec[]        ; Highest precedence
+byte                    = 1, 1, 1
+byte                    = 2, 2
+byte                    = 3, 3
+byte                    = 4
+byte                    = 5
+byte                    = 6
+byte                    = 7, 7, 7, 7
+byte                    = 8, 8
+byte                    = 9
+byte                    = 10
+byte                    = 11
+                        ; Lowest precedence
+byte opstack[16]
+byte precstack[16]
+word opsp = -1
+;
+; Scanner variables
+;
+byte  token, tknlen
+word  scanptr, tknptr
+word  constval
+word  lineno = 0
+;
+; Compiler output messages
+;
+byte entrypt_str[]      = "START: "
+byte dup_id[]           = "DUPLICATE IDENTIFIER"
+byte undecl_id[]        = "UNDECLARED IDENTIFIER"
+byte bad_cnst[]         = "BAD CONSTANT"
+byte bad_offset[]       = "BAD STRUCT OFFSET"
+byte bad_decl[]         = "BAD DECLARATION"
+byte bad_op[]           = "BAD OPERATION"
+byte bad_stmnt[]        = "BAD STATMENT"
+byte bad_expr[]         = "BAD EXPRESSION"
+byte bad_syntax[]       = "BAD SYNTAX"
+byte estk_overflw[]     = "EVAL STACK OVERFLOW"
+byte estk_underflw[]    = "EVAL STACK UNDERFLOW"
+byte local_overflw[]    = "LOCAL FRAME OVERFLOW"
+byte global_sym_overflw[] = "GLOBAL SYMBOL TABLE OVERFLOW"
+byte local_sym_overflw[] = "LOCAL SYMBOL TABLE OVERFLOW"
+byte ctag_full[]        = "CODE LABEL OVERFLOW"
+byte no_close_paren[]   = "MISSING CLOSING PAREN"
+byte no_close_bracket[] = "MISSING CLOSING BRACKET"
+byte missing_op[]       = "MISSING OPERAND"
+byte no_fin[]           = "MISSING FIN"
+byte no_loop[]          = "MISSING LOOP"
+byte no_until[]         = "MISSING UNTIL"
+byte no_done[]          = "MISSING DONE"
+byte no_local_init[]    = "NO INITIALIZED LOCALS"
+;
+; Runtime functions
+;
+byte runtime0[]         = "romcall"
+byte RUNTIME0[]         = "ROMCALL"
+byte runtime1[]         = "syscall"
+byte RUNTIME1[]         = "SYSCALL"
+byte runtime2[]         = "memset"
+byte RUNTIME2[]         = "MEMSET"
+byte runtime3[]         = "memcpy"
+byte RUNTIME3[]         = "MEMCPY"
+byte runtime4[]         = "cout"
+byte RUNTIME4[]         = "COUT"
+byte runtime5[]         = "cin"
+byte RUNTIME5[]         = "CIN"
+byte runtime6[]         = "prstr"
+byte RUNTIME6[]         = "PRSTR"
+byte runtime7[]         = "rdstr"
+byte RUNTIME7[]         = "RDSTR"
+;
+; Parser variables
+;
+byte infunc             = 0
+byte stack_loop         = 0
+byte prevstmnt          = 0
+word retfunc_tag        = 0
+word break_tag          = 0
+func parse_expr_01, parse_module_01
+;
+; Defines for ASM routines
+;
+asm equates
+        TMP     EQU     $F0
+        TMPL    EQU     TMP
+        TMPH    EQU     TMP+1
+        SRC     EQU     TMP
+        SRCL    EQU     SRC
+        SRCH    EQU     SRC+1
+        DST     EQU     SRC+2
+        DSTL    EQU     DST
+        DSTH    EQU     DST+1
+        ESP     EQU     DST+2
+		SAVEESP	EQU		ESP+1
+		SAVESP	EQU		SAVEESP+1
+		SAVEFP	EQU		SAVESP+1
+		SAVETMR	EQU		SAVEFP+2
+		SAVEINT	EQU		SAVETMR+2
+		TMRVEC	EQU		$03E8
+		INTVEC	EQU		$03EA
+JMPTMP:	JMP		(TMP)
+STKOVFLW:
+		LDY		#$02
+		JMP		EXECRET
+BRKCHK:
+		LDA		$C000
+		CMP		#$83		; CTRL-C
+		BNE		:+
+		BIT		$C010
+		LDY		#$01
+		JMP		EXECRET
+:
+end
+;
+; ENTER MODULE UNDER TEST
+;
+asm execentry
+        LDA     ESTKL,X
+        STA     TMPL
+        LDA     ESTKH,X
+        STA     TMPH
+		STX		SAVEESP
+		TSX
+		STX		SAVESP
+		LDA		FRMPL
+		STA		SAVEFP
+		LDA		FRMPH
+		STA		SAVEFP+1
+		LDA		TMRVEC
+		STA		SAVETMR
+		LDA		TMRVEC+1
+		STA		SAVETMR+1
+		LDA		INTVEC
+		STA		SAVEINT
+		LDA		INTVEC+1
+		STA		SAVEINT+1
+		LDA		#<BRKCHK
+		STA		TMRVEC
+		LDA		#>BRKCHK
+		STA		TMRVEC+1
+		LDA		#<STKOVFLW
+		STA		INTVEC
+		LDA		#>STKOVFLW
+		STA		INTVEC+1
+		LDX		#ESTKSZ/2
+		JSR		JMPTMP
+		LDY		#$00
+EXECRET:
+		STY		TMP
+		BIT		ROMIN
+		BIT		$C054
+		BIT		$C051
+		BIT		$C058
+		JSR		$FB39		; SET TEXT MODE
+		BIT		LCBNK2
+		LDA		SAVEFP
+		STA		FRMPL
+		LDA		SAVEFP+1
+		STA		FRMPH
+		LDA		SAVETMR
+		STA		TMRVEC
+		LDA		SAVETMR+1
+		STA		TMRVEC+1
+		LDA		SAVEINT
+		STA		INTVEC
+		LDA		SAVEINT+1
+		STA		INTVEC+1
+		LDX		SAVESP
+		TXS
+		LDX		SAVEESP
+		LDY		TMP
+		STY		ESTKL,X
+		LDY		#$00
+		STY		ESTKH,X
+end
+;
+; CALL 6502 ROUTINE
+; ROMCALL(AREG, XREG, YREG, STATUS, ADDR)
+;
+asm romcall
+        PHP
+        LDA     ESTKL,X
+        STA     TMPL
+        LDA     ESTKH,X
+        STA     TMPH
+        INX
+        LDA     ESTKL,X
+        PHA
+        INX
+        LDA     ESTKL,X
+        TAY
+        INX
+        LDA     ESTKL+1,X
+        PHA
+        LDA     ESTKL,X
+        INX
+        STX     ESP
+        TAX
+        PLA
+        BIT     ROMIN
+        PLP
+        JSR     JMPTMP
+        PHP
+        BIT     LCBNK2
+        STA     REGVALS+0
+        STX     REGVALS+1
+        STY     REGVALS+2
+        PLA
+        STA     REGVALS+3
+        LDX     ESP
+        LDA     #<REGVALS
+        LDY     #>REGVALS
+        STA     ESTKL,X
+        STY     ESTKH,X
+        PLP
+        RTS
+REGVALS: DS 4
+end
+;
+; BREAK INTO MONITOR
+;
+asm monitor
+		STX		ESP
+		LDA		#$4C
+		STA		$03F8
+		LDA		#<REENTER
+		STA		$03F9
+		LDA		#>REENTER
+		STA		$03FA
+		TSX
+		TXA
+		PHA
+		BIT		ROMIN
+		JMP		$FF69
+REENTER: PLA
+		TAX
+		TXS
+		LDX		ESP
+		BIT		LCBNK2
+end
+;
+; RETURN EVAL STACK POINTER
+;
+;asm estk
+;		TXA
+;		DEX
+;		STA		ESTKL,X
+;		LDA		#$00
+;		STA		ESTKH,X
+;end
+;
+; ASSERT EVAL STACK POINTER VALUE
+;
+;asm assert_estk
+;		INX
+;		TXA
+;		CMP		ESTKL-1,X
+;		BEQ		:+
+;		BRK
+;:
+;end
+;
+; CALL PRODOS
+; SYSCALL(CMD, PARAMS)
+;
+asm syscall
+        LDA     ESTKL,X
+        LDY     ESTKH,X
+        STA     PARAMS
+        STY     PARAMS+1
+        INX
+        LDA     ESTKL,X
+        STA     CMD
+        STX     ESP
+        BIT     ROMIN
+        JSR     $BF00
+CMD:    DB      00
+PARAMS: DW      0000
+        BIT     LCBNK2
+        LDX     ESP
+        STA     ESTKL,X
+        LDY     #$00
+        STY     ESTKH,X
+end
+;
+; SET MEMORY TO VALUE
+; MEMSET(VALUE, ADDR, SIZE)
+;
+asm memset
+        LDY     #$00
+        LDA     ESTKL+1,X
+        STA     DSTL
+        LDA     ESTKH+1,X
+        STA     DSTH
+        INC     ESTKL,X
+        INC     ESTKH,X
+SETMEM: DEC     ESTKL,X
+        BNE     :+
+        DEC     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKL+2,X
+        STA     (DST),Y
+        INY
+        BNE     :+
+        INC     DSTH
+:       DEC     ESTKL,X
+        BNE     :+
+        DEC     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKH+2,X
+        STA     (DST),Y
+        INY
+        BNE     SETMEM
+        INC     DSTH
+        BNE     SETMEM
+MEMEXIT: INX
+        INX
+        INX
+end
+;
+; COPY MEMORY
+; MEMCPY(SRCADDR, DSTADDR, SIZE)
+;
+asm memcpy
+        LDY     #$00
+        LDA     ESTKL,X
+        BNE     :+
+        LDA     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKL+1,X
+        STA     DSTL
+        LDA     ESTKH+1,X
+        STA     DSTH
+        LDA     ESTKL+2,X
+        STA     SRCL
+        LDA     ESTKH+2,X
+        STA     SRCH
+        CMP     DSTH
+        BCC     REVCPY
+        BNE     FORCPY
+        LDA     SRCL
+        CMP     DSTL
+        BCS     FORCPY
+REVCPY:             ; REVERSE DIRECTION COPY
+;       CLC
+        LDA     ESTKL,X
+        ADC     DSTL
+        STA     DSTL
+        LDA     ESTKH,X
+        ADC     DSTH
+        STA     DSTH
+        CLC
+        LDA     ESTKL,X
+        ADC     SRCL
+        STA     SRCL
+        LDA     ESTKH,X
+        ADC     SRCH
+        STA     SRCH
+        INC     ESTKH,X
+REVCPYLP:
+        LDA     DSTL
+        BNE     :+
+        DEC     DSTH
+:       DEC     DSTL
+        LDA     SRCL
+        BNE     :+
+        DEC     SRCH
+:       DEC     SRCL
+        LDA     (SRC),Y
+        STA     (DST),Y
+        DEC     ESTKL,X
+        BNE     REVCPYLP
+        DEC     ESTKH,X
+        BNE     REVCPYLP
+        BEQ     MEMEXIT
+FORCPY: INC     ESTKH,X
+FORCPYLP:
+        LDA     (SRC),Y
+        STA     (DST),Y
+        INC     DSTL
+        BNE     :+
+        INC     DSTH
+:       INC     SRCL
+        BNE     :+
+        INC     SRCH
+:       DEC     ESTKL,X
+        BNE     FORCPYLP
+        DEC     ESTKH,X
+        BNE     FORCPYLP
+        BEQ     MEMEXIT
+end
+;
+; CHAR OUT
+; COUT(CHAR)
+;
+asm cout
+        LDA     ESTKL,X
+        INX
+        ORA     #$80
+        BIT     ROMIN
+        JSR     $FDED
+        BIT     LCBNK2
+end
+;
+; CHAR IN
+; RDKEY()
+;
+asm cin
+        BIT     ROMIN
+        STX     ESP
+        JSR     $FD0C
+        LDX     ESP
+        BIT     LCBNK2
+        DEX
+        AND     #$7F
+        STA     ESTKL,X
+        LDY     #$00
+        STY     ESTKH,X
+end
+;
+; PRINT STRING
+; PRSTR(STR)
+;
+asm prstr
+        LDY     #$00
+        LDA     ESTKL,X
+        STA     SRCL
+        LDA     ESTKH,X
+        STA     SRCH
+        BIT     ROMIN
+        LDA     (SRC),Y
+        STA     ESTKL,X
+        BEQ     :+
+_PRS1:  INY
+        LDA     (SRC),Y
+        ORA     #$80
+        JSR     $FDED
+        TYA
+        CMP     ESTKL,X
+        BNE     _PRS1
+:       INX
+        BIT     LCBNK2
+end
+;
+; READ STRING
+; STR = RDSTR(PROMPTCHAR)
+;
+asm rdstr
+        LDA     ESTKL,X
+        STA     $33
+        STX     ESP
+        BIT     ROMIN
+        JSR     $FD6A
+        BIT     LCBNK2
+        STX     $01FF
+:       LDA     $01FF,X
+        AND     #$7F
+        STA     $01FF,X
+        DEX
+        BPL     :-
+        LDX     ESP
+        LDA     #$FF
+        STA     ESTKL,X
+        LDA     #$01
+        STA     ESTKH,X
+end
+;def toupper_11(c)
+;   if c >= 'a'
+;       if c <= 'z'
+;           return c - $20
+;       fin
+;   fin
+;   return c
+;end
+asm toupper_11
+        LDA     ESTKL,X
+        CMP     #'a'
+        BCC     :+
+        CMP     #'z'+1
+        BCS     :+
+        SEC
+        SBC     #$20
+        STA     ESTKL,X
+:
+end
+;
+; EXIT
+;
+asm exit
+        JSR $BF00
+        DB  $65
+        DW  EXITTBL
+EXITTBL:
+        DB  4
+        DB  0
+end
+;
+; ProDOS routines
+;
+def getpfx_11(path)
+    byte params[3]
+
+    ^path    = 0
+    params.0 = 1
+    params:1 = path
+    perr     = syscall($C7, @params)
+    return path
+end
+def setpfx_11(path)
+    byte params[3]
+
+    params.0 = 1
+    params:1 = path
+    perr     = syscall($C6, @params)
+    return path
+end
+def open_21(path, buff)
+    byte params[6]
+
+    params.0 = 3
+    params:1 = path
+    params:3 = buff
+    params.5 = 0
+    perr     = syscall($C8, @params)
+    return params.5
+end
+def close_11(refnum)
+    byte params[2]
+
+    params.0 = 1
+    params.1 = refnum
+    perr     = syscall($CC, @params)
+    return perr
+end
+def read_31(refnum, buff, len)
+    byte params[8]
+
+    params.0 = 4
+    params.1 = refnum
+    params:2 = buff
+    params:4 = len
+    params:6 = 0
+    perr     = syscall($CA, @params)
+    return params:6
+end
+def write_31(refnum, buff, len)
+    byte params[8]
+
+    params.0 = 4
+    params.1 = refnum
+    params:2 = buff
+    params:4 = len
+    params:6 = 0
+    perr     = syscall($CB, @params)
+    return params:6
+end
+def create_41(path, access, type, aux)
+    byte params[12]
+
+    params.0  = 7
+    params:1  = path
+    params.3  = access
+    params.4  = type
+    params:5  = aux
+    params.7  = $1
+    params:8  = 0
+    params:10 = 0
+    perr      = syscall($C0, @params)
+    return perr
+end
+def destroy_11(path)
+    byte params[12]
+
+    params.0 = 1
+    params:1 = path
+    perr     = syscall($C1, @params)
+    return perr
+end
+def newline_31(refnum, emask, nlchar)
+    byte params[4]
+
+    params.0 = 3
+    params.1 = refnum
+    params.2 = emask
+    params.3 = nlchar
+    perr     = syscall($C9, @params)
+    return perr
+end
+def crout
+    cout($0D)
+end
+def prbyte_10(h)
+    cout('$')
+    drop romcall(h, 0, 0, 0, $FDDA)
+end
+def prword_10(h)
+    cout('$')
+    drop romcall(h >> 8, h, 0, 0, $F941)
+end
+def print_10(i)
+    byte numstr[7]
+    byte place, sign
+
+    place = 6
+    if i < 0
+        sign = 1
+        i    = -i
+    else
+        sign = 0
+    fin
+    while i >= 10
+        i =, numstr[place] = i % 10 + '0'
+        place              = place - 1
+    loop
+    numstr[place] = i + '0'
+    place         = place - 1
+    if sign
+        numstr[place] = '-'
+        place         = place - 1
+    fin
+    numstr[place] = 6 - place
+    prstr(@numstr[place])
+end
+def nametostr_30(namestr, len, strptr)
+    ^strptr = len
+    memcpy(namestr, strptr + 1, len)
+end
+
+;=====================================
+;
+;           PLASMA Compiler
+;
+;=====================================
+
+;
+; Error handler
+;
+def parse_err_11(err)
+    word i
+
+    drop close_11(0)
+    crout()
+    print_10(lineno)
+    cout(':')
+    prstr(err)
+    crout()
+    prstr(instr)
+    crout()
+    for i = inbuff to tknptr - 1
+        cout(' ')
+    next
+    cout('^')
+    cin()
+    exit()
+    return ERR_TKN
+end
+;
+; Emit bytecode
+;
+def ctag_new_01
+    if codetag >= ctag_max
+        return parse_err_11(@ctag_full)
+    fin
+    codetag = codetag + 1
+    ctag_value:[codetag] = 0
+    ctag_flags.[codetag] = 0
+    return codetag ? is_ctag
+end
+defopt ctag_resolve_21(tag, addr)
+    word updtptr, nextptr
+
+    tag = tag & mask_ctag
+    if ctag_flags.[tag] & resolved
+        return parse_err_11(@dup_id)
+    fin
+    updtptr = ctag_value:[tag]
+    while updtptr
+        ;
+        ; Update list of addresses needing resolution
+        ;
+        nextptr  = *updtptr
+        *updtptr = addr
+        updtptr  = nextptr
+    loop
+    ctag_value:[tag] = addr
+    ctag_flags.[tag] = ctag_flags.[tag] ? resolved
+    return 0
+end
+defopt emit_byte_10(bval)
+    ^codeptr = bval
+    codeptr  = codeptr + 1
+end
+defopt emit_word_10(wval)
+    *codeptr = wval
+    codeptr  = codeptr + 2
+end
+def emit_fill_10(size)
+    memset(0, codeptr, size)
+    codeptr = codeptr + size
+end
+def emit_codetag_10(tag)
+    drop ctag_resolve_21(tag, codeptr)
+end
+defopt emit_op_10(op)
+    lastop   = op
+    ^codeptr = op
+    codeptr  = codeptr + 1
+end
+def emit_tag_10(tag)
+    word updtptr
+
+    if tag & is_ctag
+        tag = tag & mask_ctag
+        updtptr = ctag_value:[tag]
+        if !(ctag_flags.[tag] & resolved)
+            ;
+            ; Add to list of tags needing resolution
+            ;
+            ctag_value:[tag] = codeptr
+        fin
+        emit_word_10(updtptr)
+    else
+        emit_word_10(tag + codebuff)
+    fin
+end
+def emit_iddata_30(value, size, namestr)
+    emit_fill_10(size)
+end
+def emit_data_41(vartype, consttype, constval, constsize)
+    byte i
+    word size, chrptr
+
+    if consttype == 0
+        size = constsize
+        emit_fill_10(constsize)
+    elsif consttype == STR_TYPE
+        size = constsize
+        chrptr = constval
+        constsize = constsize - 1
+        emit_byte_10(constsize)
+        while constsize > 0
+            emit_byte_10(^chrptr)
+            chrptr    = chrptr + 1
+            constsize = constsize - 1
+        loop
+    else
+        if vartype == WORD_TYPE
+            size = 2
+            emit_word_10(constval)
+        else
+            size = 1
+            emit_byte_10(constval)
+        fin
+    fin
+    return size
+end
+def emit_const_10(cval)
+    if cval == 0
+        emit_op_10($00)
+    elsif cval > 0 and cval < 256
+        emit_op_10($2A)
+        emit_byte_10(cval)
+    else
+        emit_op_10($2C)
+        emit_word_10(cval)
+    fin
+end
+def emit_lb
+    emit_op_10($60)
+end
+def emit_lw
+    emit_op_10($62)
+end
+def emit_llb_10(index)
+    emit_op_10($64)
+    emit_byte_10(index)
+end
+def emit_llw_10(index)
+    emit_op_10($66)
+    emit_byte_10(index)
+end
+def emit_lab_10(tag)
+    emit_op_10($68)
+    emit_tag_10(tag)
+end
+def emit_law_10(tag)
+    emit_op_10($6A)
+    emit_tag_10(tag)
+end
+def emit_sb
+    emit_op_10($70)
+end
+def emit_sw
+    emit_op_10($72)
+end
+def emit_slb_10(index)
+    emit_op_10($74)
+    emit_byte_10(index)
+end
+def emit_slw_10(index)
+    emit_op_10($76)
+    emit_byte_10(index)
+end
+def emit_dlb_10(index)
+    emit_op_10($6C)
+    emit_byte_10(index)
+end
+def emit_dlw_10(index)
+    emit_op_10($6E)
+    emit_byte_10(index)
+end
+def emit_sab_10(tag)
+    emit_op_10($78)
+    emit_tag_10(tag)
+end
+def emit_saw_10(tag)
+    emit_op_10($7A)
+    emit_tag_10(tag)
+end
+def emit_dab_10(tag)
+    emit_op_10($7C)
+    emit_tag_10(tag)
+end
+def emit_daw_10(tag)
+    emit_op_10($7E)
+    emit_tag_10(tag)
+end
+def emit_call_10(tag)
+    emit_op_10($54)
+    emit_tag_10(tag)
+end
+def emit_ical
+    emit_op_10($56)
+end
+def emit_push
+    emit_op_10($34)
+end
+def emit_pull
+    ;
+    ; Skip if last op was push
+    ;
+    if lastop == $34
+        codeptr = codeptr - 1
+        lastop = $FF
+    else
+        emit_op_10($36)
+    fin
+end
+def emit_localaddr_10(index)
+    emit_op_10($28)
+    emit_byte_10(index)
+end
+def emit_globaladdr_10(tag)
+    emit_op_10($26)
+    emit_tag_10(tag)
+end
+def emit_indexbyte
+    emit_op_10($02)
+end
+def emit_indexword
+    emit_op_10($1E)
+end
+defopt emit_unaryop_11(op)
+    when op
+        is NEG_TKN
+            emit_op_10($10)
+        is COMP_TKN
+            emit_op_10($12)
+        is LOGIC_NOT_TKN
+            emit_op_10($20)
+        is INC_TKN
+            emit_op_10($0C)
+        is DEC_TKN
+            emit_op_10($0E)
+        is BPTR_TKN
+            emit_op_10($60)
+        is WPTR_TKN
+            emit_op_10($62)
+        otherwise
+            return FALSE
+    wend
+    return TRUE
+end
+defopt emit_binaryop_11(op)
+    when op
+        is MUL_TKN
+            ;
+            ; Replace MUL 2 with SHL 1
+            ;
+            if lastop == $2A and ^(codeptr - 1) == 2 ; CB 2
+                codeptr = codeptr - 1
+                emit_byte_10(1) ; CB 1
+                emit_op_10($1A) ; SHL
+            else
+                emit_op_10($06)
+            fin
+        is DIV_TKN
+            ;
+            ; Replace DIV 2 with SHR 1
+            ;
+            if lastop == $2A and ^(codeptr - 1) == 2 ; CB 2
+                codeptr = codeptr - 1
+                emit_byte_10(1) ; CB 1
+                emit_op_10($1C) ; SHR
+            else
+                emit_op_10($08)
+            fin
+        is MOD_TKN
+            emit_op_10($0A)
+        is ADD_TKN
+            ;
+            ; Replace ADD 1 with INCR
+            ;
+            if lastop == $2A and ^(codeptr - 1) == 1 ; CB 1
+                codeptr = codeptr - 2
+                emit_op_10($0C) ; INC_OP
+            else
+                emit_op_10($02)
+            fin
+        is SUB_TKN
+            ;
+            ; Replace SUB 1 with DECR
+            ;
+            if lastop == $2A and ^(codeptr - 1)  == 1 ; CB 1
+                codeptr = codeptr - 2
+                emit_op_10($0E) ; DEC_OP
+            else
+                emit_op_10($04)
+            fin
+        is SHL_TKN
+            emit_op_10($1A)
+        is SHR_TKN
+            emit_op_10($1C)
+        is AND_TKN
+            emit_op_10($14)
+        is OR_TKN
+            emit_op_10($16)
+        is EOR_TKN
+            emit_op_10($18)
+        is EQ_TKN
+            emit_op_10($40)
+        is NE_TKN
+            emit_op_10($42)
+        is GE_TKN
+            emit_op_10($48)
+        is LT_TKN
+            emit_op_10($46)
+        is GT_TKN
+            emit_op_10($44)
+        is LE_TKN
+            emit_op_10($4A)
+        is LOGIC_OR_TKN
+            emit_op_10($22)
+        is LOGIC_AND_TKN
+            emit_op_10($24)
+        is COMMA_TKN
+            ; Do nothing except move to next stanza in expression
+        otherwise
+            return FALSE
+    wend
+    return TRUE
+end
+def emit_brtru_10(tag)
+    emit_op_10($4E)
+    emit_tag_10(tag)
+end
+def emit_brfls_10(tag)
+    emit_op_10($4C)
+    emit_tag_10(tag)
+end
+def emit_brgt_10(tag)
+    emit_op_10($3A)
+    emit_tag_10(tag)
+end
+def emit_brlt_10(tag)
+    emit_op_10($38)
+    emit_tag_10(tag)
+end
+def emit_brne_10(tag)
+    emit_op_10($3E)
+    emit_tag_10(tag)
+end
+def emit_jump_10(tag)
+    emit_op_10($50)
+    emit_tag_10(tag)
+end
+def emit_drop
+    emit_op_10($30)
+end
+def emit_swap
+    emit_op_10($2E)
+end
+def emit_leave_10(framesize)
+    if framesize > 2
+        emit_op_10($5A)
+    else
+        emit_op_10($5C)
+    fin
+end
+def emit_enter_20(framesize, cparams)
+    emit_byte_10($20)
+    emit_byte_10($D0)
+    emit_byte_10($03)
+    if framesize > 2
+        emit_op_10($58)
+        emit_byte_10(framesize)
+        emit_byte_10(cparams)
+    fin
+end
+def emit_start
+    ;
+    ; Save address
+    ;
+    entrypoint = codeptr
+    emit_byte_10(emit_start.[0])
+    emit_byte_10(emit_start.[1])
+    emit_byte_10(emit_start.[2])
+end
+def emit_exit
+    emit_op_10($00)
+    emit_op_10($5C)
+end
+;
+; Lexical anaylzer
+;
+;def isalpha_11(c)
+;   if c >= 'A' and c <= 'Z'
+;       return TRUE
+;   elsif c >= 'a' and c <= 'z'
+;       return TRUE
+;   elsif c == '_'
+;       return TRUE
+;   fin
+;   return FALSE
+;end
+asm isalpha_11
+        LDY     #$00
+        LDA     ESTKL,X
+        CMP     #'A'
+        BCC     ISALRET
+        CMP     #'Z'+1
+        BCS     :+
+        DEY
+        BNE     ISALRET
+:       CMP     #'a'
+        BCC     ISALRET
+        CMP     #'z'+1
+        BCS     :+
+        DEY
+        BNE     ISALRET
+:       CMP     #'_'
+        BNE     ISALRET
+        DEY
+ISALRET:
+        STY     ESTKL,X
+        STY     ESTKH,X
+        RTS
+end
+;def isnum_11(c)
+;   if c >= '0' and c <= '9'
+;       return TRUE
+;   fin
+;   return FALSE
+;end
+asm isnum_11
+        LDY     #$00
+        LDA     ESTKL,X
+        CMP     #'0'
+        BCC     :+
+        CMP     #'9'+1
+        BCS     :+
+        DEY
+:       STY     ESTKL,X
+        STY     ESTKH,X
+        RTS
+end
+;def isalphanum_11(c)
+;   if c >= 'A' and c <= 'Z'
+;       return TRUE
+;   elsif c >= '0' and c <= '9'
+;       return TRUE
+;   elsif c >= 'a' and c <= 'z'
+;       return TRUE
+;   elsif c == '_'
+;       return TRUE
+;   fin
+;   return FALSE
+;end
+asm isalphanum_11
+        LDY     #$00
+        LDA     ESTKL,X
+        CMP     #'0'
+        BCC     ISANRET
+        CMP     #'9'+1
+        BCS     :+
+        DEY
+        BNE     ISANRET
+:       CMP     #'A'
+        BCC     ISANRET
+        CMP     #'Z'+1
+        BCS     :+
+        DEY
+        BNE     ISANRET
+:       CMP     #'a'
+        BCC     :+
+        CMP     #'z'+1
+        BCS     ISANRET
+        DEY
+        BNE     ISANRET
+:       CMP     #'_'
+        BNE     ISANRET
+        DEY
+ISANRET:
+        STY     ESTKL,X
+        STY     ESTKH,X
+        RTS
+end
+defopt keymatch_21(chrptr, len)
+    byte i, keypos
+
+    keypos = 0
+    while keywrds[keypos] < len
+        keypos = keypos + keywrds[keypos] + 2
+    loop
+    while keywrds[keypos] == len
+        for i = 1 to len
+            if toupper_11((chrptr).[i - 1]) <> keywrds[keypos + i]
+                break
+            fin
+        next
+        if i > len
+            return keywrds[keypos + keywrds[keypos] + 1]
+        fin
+        keypos = keypos + keywrds[keypos] + 2
+    loop
+    return ID_TKN
+end
+defopt scan_01
+    ;
+    ; Scan for token based on first character
+    ;
+    while ^scanptr and ^scanptr <= ' '
+        scanptr = scanptr + 1
+    loop
+    tknptr = scanptr
+    if !^scanptr or ^scanptr == ';'
+        if token <> EOF_TKN
+            token = EOL_TKN
+        fin
+    elsif isalpha_11(^scanptr)
+        ;
+        ; ID,    either variable name or reserved word
+        ;
+        repeat
+            scanptr = scanptr + 1
+        until !isalphanum_11(^scanptr)
+        tknlen = scanptr - tknptr;
+        token = keymatch_21(tknptr, tknlen)
+    elsif isnum_11(^scanptr)
+        ;
+        ; Number constant
+        ;
+        token       = INT_TKN
+        constval = 0
+        repeat
+            constval = constval * 10 + ^scanptr - '0'
+            scanptr  = scanptr + 1
+        until !isnum_11(^scanptr)
+    elsif ^scanptr == '$'
+        ;
+        ; Hexadecimal constant
+        ;
+        token    = INT_TKN;
+        constval = 0
+        repeat
+            scanptr = scanptr + 1
+            if ^scanptr >= '0' and ^scanptr <= '9'
+                constval = (constval << 4) + ^scanptr - '0'
+            elsif ^scanptr >= 'A' and ^scanptr <= 'F'
+                constval = (constval << 4) + ^scanptr - '7'; 'A'-10
+            elsif ^scanptr >= 'a' and ^scanptr <= 'f'
+                constval = (constval << 4) + ^scanptr - 'W'; 'a'-10
+            else
+                break;
+            fin
+        until !^scanptr
+    elsif ^scanptr == $27 ; '
+        ;
+        ; Character constant
+        ;
+        token = CHR_TKN
+        if ^(scanptr + 1) <> $5C ; \
+            constval = ^(scanptr + 1)
+            if ^(scanptr + 2) <> $27 ; '
+                return parse_err_11(@bad_cnst)
+            fin
+            scanptr = scanptr + 3
+        else
+            when ^(scanptr + 2)
+                is 'n'
+                    constval = $0D
+                is 'r'
+                    constval = $0A
+                is 't'
+                    constval = $09
+                otherwise
+                    constval = ^(scanptr + 2)
+            wend
+            if ^(scanptr + 3) <> $27 ; '
+                return parse_err_11(@bad_cnst)
+            fin
+            scanptr = scanptr + 4
+        fin
+    elsif ^scanptr == '"'
+        ;
+        ; String constant
+        ;
+        token    = STR_TKN
+        scanptr  = scanptr + 1
+        constval = scanptr
+        while ^scanptr and ^scanptr <> '"'
+            scanptr = scanptr + 1
+        loop
+        if !^scanptr
+            return parse_err_11(@bad_cnst)
+        fin
+        scanptr = scanptr + 1
+    else
+        ;
+        ; Potential two and three character tokens
+        ;
+        when ^scanptr
+            is '>'
+                if ^(scanptr + 1) == '>'
+                    token   = SHR_TKN
+                    scanptr = scanptr + 2
+                elsif ^(scanptr + 1) == '='
+                    token   = GE_TKN
+                    scanptr = scanptr + 2
+                else
+                    token   = GT_TKN
+                    scanptr = scanptr + 1
+                fin
+            is '<'
+                if ^(scanptr + 1) == '<'
+                    token   = SHL_TKN
+                    scanptr = scanptr + 2
+                elsif ^(scanptr + 1) == '='
+                    token   = LE_TKN
+                    scanptr = scanptr + 2
+                elsif ^(scanptr + 1) == '>'
+                    token   = NE_TKN
+                    scanptr = scanptr + 2
+                else
+                    token   = LT_TKN
+                    scanptr = scanptr + 1
+                fin
+            is '='
+                if ^(scanptr + 1) == '='
+                    token   = EQ_TKN
+                    scanptr = scanptr + 2;
+                elsif ^(scanptr + 1) == ','
+                    token   = SETLIST_TKN
+                    scanptr = scanptr + 2;
+                else
+                    token   = SET_TKN;
+                    scanptr = scanptr + 1
+                fin
+            otherwise
+                ;
+                ; Simple single character tokens
+                ;
+                token   = ^scanptr ? $80
+                scanptr = scanptr + 1
+        wend
+    fin
+    tknlen = scanptr - tknptr
+    return token
+end
+def rewind_10(ptr)
+    scanptr = ptr
+end
+;
+; Get next line of input
+;
+def nextln_01
+    byte i, chr
+
+    scanptr = inbuff
+    ^instr = read_31(inref, inbuff, $7F)
+    inbuff[^instr] = $00
+    if ^instr
+        lineno = lineno + 1
+        if !(lineno & $0F)
+            cout('.')
+        fin
+;        cout('>')
+;        prstr(instr)
+;        crout
+        drop scan_01()
+    else
+        ^instr  = 0
+        ^inbuff = $00
+        token   = DONE_TKN
+    fin
+    return ^instr
+end
+;
+; Alebraic op to stack op
+;
+def push_op_21(op, prec)
+    opsp = opsp + 1
+    if opsp == 16
+        return parse_err_11(@estk_overflw)
+    fin
+    opstack[opsp]   = op
+    precstack[opsp] = prec
+    return 0
+end
+def pop_op_01
+    if opsp < 0
+        return parse_err_11(@estk_underflw)
+    fin
+    opsp = opsp - 1
+    return opstack[opsp + 1]
+end
+def tos_op_01
+    if opsp < 0
+        return 0
+    fin
+    return opstack[opsp]
+end
+def tos_op_prec_11(tos)
+    if opsp <= tos
+        return 100
+    fin
+    return precstack[opsp]
+end
+;
+; Symbol table
+;
+defopt idmatch_41(nameptr, len, idptr, idcnt)
+    byte i
+
+    while idcnt
+        if len == (idptr).idname
+            for i = 1 to len
+                if (nameptr).[i - 1] <> (idptr).idname.[i]
+                    break
+                fin
+            next
+            if i > len
+                return idptr
+            fin
+        fin
+        idptr = idptr + (idptr).idname + idrecsz
+        idcnt = idcnt - 1
+    loop
+    return 0
+end
+;def dumpsym_20(idptr, idcnt)
+;   while idcnt
+;       prword_10((idptr):idval)
+;       cout(' ')
+;       prbyte_10((idptr).idtype)
+;       cout(' ')
+;       prstr(@(idptr).idname)
+;       cout('=')
+;       if (idptr).idtype & ADDR_TYPE
+;            if (idptr):idval & is_ctag
+;                prword_10(ctag_value:[(idptr):idval & mask_ctag])
+;            else
+;                prword_10((idptr):idval + codebuff)
+;            fin
+;        else
+;            prword_10((idptr):idval)
+;        fin
+;       crout()
+;       idptr = idptr + (idptr).idname + idrecsz
+;       idcnt = idcnt - 1
+;   loop
+;end
+def id_lookup_21(nameptr, len)
+    word idptr
+
+    idptr = idmatch_41(nameptr, len, idlocal_tbl, locals)
+    if idptr
+        return idptr
+    fin
+    idptr = idmatch_41(nameptr, len, idglobal_tbl, globals)
+    if idptr
+        return idptr
+    fin
+    return parse_err_11(@undecl_id)
+end
+def idglobal_lookup_21(nameptr, len)
+    return idmatch_41(nameptr, len, idglobal_tbl, globals)
+end
+def idlocal_add_41(namestr, len, type, size)
+    if idmatch_41(namestr, len, @idlocal_tbl, locals)
+        return parse_err_11(@dup_id)
+    fin
+    (lastlocal):idval  = framesize
+    (lastlocal).idtype = type ? LOCAL_TYPE
+    nametostr_30(namestr, len, lastlocal + idname)
+    locals    = locals + 1
+    lastlocal = lastlocal + idrecsz + len
+    if lastlocal > idlocal_tbl + idlocal_tblsz
+        prstr(@local_sym_overflw)
+        exit
+    fin
+    framesize = framesize + size
+    if framesize > 255
+        prstr(@local_overflw)
+        return FALSE
+    fin
+    return TRUE
+end
+def iddata_add_41(namestr, len, type, size)
+    if idmatch_41(namestr, len, idglobal_tbl, globals)
+        return parse_err_11(@dup_id)
+    fin
+    (lastglobal):idval  = datasize
+    (lastglobal).idtype = type
+    nametostr_30(namestr, len, lastglobal + idname)
+    emit_iddata_30(datasize, size, lastglobal + idname)
+    globals    = globals + 1
+    lastglobal = lastglobal + idrecsz + len
+    if lastglobal > idglobal_tbl + idglobal_tblsz
+        prstr(@global_sym_overflw)
+        exit
+    fin
+    datasize = datasize + size
+    return TRUE
+end
+def iddata_size_30(type, varsize, initsize)
+    if varsize > initsize
+        datasize = datasize + emit_data_41(0, 0, 0, varsize - initsize)
+    else
+        datasize = datasize + initsize
+    fin
+;   if datasize <> codeptr - codebuff
+;       prstr(@emiterr)
+;       keyin_01()
+;   fin
+end
+def idglobal_add_41(namestr, len, type, value)
+    if idmatch_41(namestr, len, idglobal_tbl, globals)
+        return parse_err_11(@dup_id)
+    fin
+    (lastglobal):idval  = value
+    (lastglobal).idtype = type
+    nametostr_30(namestr, len, lastglobal + idname)
+    globals    = globals + 1
+    lastglobal = lastglobal + idrecsz + len
+    if lastglobal > idglobal_tbl + idglobal_tblsz
+        prstr(@global_sym_overflw)
+        exit
+    fin
+    return TRUE
+end
+def idfunc_add_31(namestr, len, tag)
+    return idglobal_add_41(namestr, len, FUNC_TYPE, tag)
+end
+def idconst_add_31(namestr, len, value)
+    return idglobal_add_41(namestr, len, CONST_TYPE, value)
+end
+def idglobal_init
+    word ctag
+
+    lineno       = 0
+    codeptr      = codebuff
+    lastop       = $FF
+    entrypoint   = 0
+    datasize     = 0
+    globals      = 0
+    lastglobal   = idglobal_tbl
+    codetag      = -1
+    ctag = ctag_new_01()
+    drop idfunc_add_31(@runtime0 + 1, runtime0, ctag)
+    drop idfunc_add_31(@RUNTIME0 + 1, RUNTIME0, ctag)
+    drop ctag_resolve_21(ctag, @romcall)
+    ctag = ctag_new_01()
+    drop idfunc_add_31(@runtime1 + 1, runtime1, ctag)
+    drop idfunc_add_31(@RUNTIME1 + 1, RUNTIME1, ctag)
+    drop ctag_resolve_21(ctag, @syscall)
+    ctag = ctag_new_01()
+    drop idfunc_add_31(@runtime2 + 1, runtime2, ctag)
+    drop idfunc_add_31(@RUNTIME2 + 1, RUNTIME2, ctag)
+    drop ctag_resolve_21(ctag, @memset)
+    ctag = ctag_new_01()
+    drop idfunc_add_31(@runtime3 + 1, runtime3, ctag)
+    drop idfunc_add_31(@RUNTIME3 + 1, RUNTIME3, ctag)
+    drop ctag_resolve_21(ctag, @memcpy)
+    ctag = ctag_new_01()
+    drop idfunc_add_31(@runtime4 + 1, runtime4, ctag)
+    drop idfunc_add_31(@RUNTIME4 + 1, RUNTIME4, ctag)
+    drop ctag_resolve_21(ctag, @cout)
+    ctag = ctag_new_01()
+    drop idfunc_add_31(@runtime5 + 1, runtime5, ctag)
+    drop idfunc_add_31(@RUNTIME5 + 1, RUNTIME5, ctag)
+    drop ctag_resolve_21(ctag, @cin)
+    ctag = ctag_new_01()
+    drop idfunc_add_31(@runtime6 + 1, runtime6, ctag)
+    drop idfunc_add_31(@RUNTIME6 + 1, RUNTIME6, ctag)
+    drop ctag_resolve_21(ctag, @prstr)
+    ctag = ctag_new_01()
+    drop idfunc_add_31(@runtime7 + 1, runtime7, ctag)
+    drop idfunc_add_31(@RUNTIME7 + 1, RUNTIME7, ctag)
+    drop ctag_resolve_21(ctag, @rdstr)
+end
+def idlocal_init
+    locals    = 0
+    framesize = 2
+    lastlocal = idlocal_tbl
+end
+;
+; Parser
+;
+def parse_term_01
+    when scan_01()
+        is ID_TKN
+            return TRUE
+        is INT_TKN
+            return TRUE
+        is CHR_TKN
+            return TRUE
+        is STR_TKN
+            return TRUE
+        is OPEN_PAREN_TKN
+            if !parse_expr_01()
+                return FALSE
+            fin
+            if token <> CLOSE_PAREN_TKN
+                return parse_err_11(@no_close_paren)
+            fin
+            return TRUE
+    wend
+    return FALSE
+end
+def parse_constval_21(valptr, sizeptr)
+    byte mod, type
+    word idptr
+
+    mod         = 0
+    type        = 0
+    *valptr = 0
+    while !parse_term_01()
+        when token
+            is SUB_TKN
+                mod = mod ? 1
+            is COMP_TKN
+                mod = mod ? 2
+            is LOGIC_NOT_TKN
+                mod = mod ? 4
+            is AT_TKN
+                mod = mod ? 8
+            otherwise
+                return 0
+        wend
+    loop
+    when token
+        is STR_TKN
+            *valptr  = constval
+            ^sizeptr = tknlen - 1
+            type         = STR_TYPE
+            if mod
+                return parse_err_11(@bad_op)
+            fin
+        is CHR_TKN
+            *valptr  = constval
+            ^sizeptr = 1
+            type         = BYTE_TYPE
+        is INT_TKN
+            *valptr  = constval
+            ^sizeptr = 2
+            type         = WORD_TYPE
+        is ID_TKN
+            ^sizeptr = 2
+            idptr = id_lookup_21(tknptr, tknlen)
+            if !idptr
+                return parse_err_11(@bad_cnst)
+            fin
+            type    = (idptr).idtype
+            *valptr = (idptr):idval
+            if type & VAR_TYPE and !(mod & 8)
+                return parse_err_11(@bad_cnst)
+            fin
+        otherwise
+            return parse_err_11(@bad_cnst)
+    wend
+    if mod & 1
+        *valptr = -*valptr
+    fin
+    if mod & 2
+        *valptr = #*valptr
+    fin
+    if mod & 4
+        *valptr = !*valptr
+    fin
+    return type
+end
+def ispostop_01
+    when token
+        is OPEN_PAREN_TKN
+            return TRUE
+        is OPEN_BRACKET_TKN
+            return TRUE
+        is DOT_TKN
+            return TRUE
+        is COLON_TKN
+            return TRUE
+    wend
+    return FALSE
+end
+def parse_value_11(rvalue)
+    byte cparams, deref, type, emit_val
+    word optos, idptr, value
+    byte elem_type, elem_size
+    word elem_offset
+
+    deref    = rvalue
+    optos    = opsp
+    type     = 0
+    emit_val = 0
+    value    = 0
+
+    ;
+    ; Parse pre-ops
+    ;
+    while !parse_term_01()
+        when token
+            is ADD_TKN
+            is BPTR_TKN
+                if deref
+                    drop push_op_21(token, 0)
+                else
+                    type = type ? BPTR_TYPE
+                    deref = deref + 1
+                fin
+            is WPTR_TKN
+                if deref
+                    drop push_op_21(token, 0)
+                else
+                    type = type ? WPTR_TYPE
+                    deref = deref + 1
+                fin
+            is AT_TKN
+                deref = deref - 1
+            is SUB_TKN
+                drop push_op_21(token, 0)
+            is COMP_TKN
+                drop push_op_21(token, 0)
+            is LOGIC_NOT_TKN
+                drop push_op_21(token, 0)
+            otherwise
+                return 0
+        wend
+    loop
+    ;
+    ; Determine terminal type
+    ;
+    when token
+        is INT_TKN
+            type  = type ? CONST_TYPE
+            value = constval
+        is CHR_TKN
+            type  = type ? CONST_TYPE
+            value = constval
+        is ID_TKN
+            idptr = id_lookup_21(tknptr, tknlen)
+            if !idptr
+                return 0
+            fin
+            if !(idptr).idtype
+                return 0
+            fin
+            type  = type ? (idptr).idtype
+            value = (idptr):idval
+        is CLOSE_PAREN_TKN
+            type     = type ? WORD_TYPE
+            emit_val = 1
+        otherwise
+            return 0
+    wend
+    ;
+    ; Constant optimizations
+    ;
+    if type & CONST_TYPE
+        cparams = TRUE
+        while optos < opsp and cparams
+            when tos_op_01()
+                is NEG_TKN
+                    drop pop_op_01()
+                    value = -value
+                is COMP_TKN
+                    drop pop_op_01()
+                    value = #value
+                is LOGIC_NOT_TKN
+                    drop pop_op_01()
+                    value = !value
+                otherwise
+                    cparams = FALSE
+            wend
+        loop
+    fin
+    ;
+    ; Parse post-ops
+    ;
+    drop scan_01()
+    while ispostop_01()
+        if token == OPEN_BRACKET_TKN
+            ;
+            ; Array
+            ;
+            if !emit_val
+                if type & ADDR_TYPE
+                    if type & LOCAL_TYPE
+                        emit_localaddr_10(value)
+                    else
+                        emit_globaladdr_10(value)
+                    fin
+                elsif type & CONST_TYPE
+                    emit_const_10(value)
+                fin
+                emit_val = 1
+            fin ; !emit_val
+            if type & PTR_TYPE
+                emit_lw()
+            fin
+            if !parse_expr_01()
+                return 0
+            fin
+            if token <> CLOSE_BRACKET_TKN
+                return parse_err_11(@no_close_bracket)
+            fin
+            if type & WORD_TYPE
+                type = WPTR_TYPE
+                emit_indexword()
+            else
+                type = BPTR_TYPE
+                emit_indexbyte()
+            fin
+            drop scan_01()
+        elsif token == DOT_TKN or token == COLON_TKN
+            ;
+            ; Dot and Colon
+            ;
+            if token == DOT_TKN
+                elem_type = BPTR_TYPE
+            else
+                elem_type = WPTR_TYPE
+            fin
+            if parse_constval_21(@elem_offset, @elem_size)
+                ;
+                ; Constant structure offset
+                ;
+                if !emit_val
+                    if type & VAR_TYPE
+                        if type & LOCAL_TYPE
+                            emit_localaddr_10(value + elem_offset)
+                        else
+                            ; emit_globaladdr_10(value + elem_offset)
+                            emit_globaladdr_10(value)
+                            emit_const_10(elem_offset)
+                            drop emit_binaryop_11(ADD_TKN)
+                        fin
+                    elsif type & CONST_TYPE
+                        value = value + elem_offset
+                        emit_const_10(value)
+                    else ; FUNC_TYPE
+                        emit_globaladdr_10(value)
+                        emit_const_10(elem_offset)
+                        drop emit_binaryop_11(ADD_TKN)
+                    fin
+                    emit_val = 1
+                else
+                    if elem_offset <> 0
+                        emit_const_10(elem_offset)
+                        drop emit_binaryop_11(ADD_TKN)
+                    fin
+                fin ; !emit_val
+                drop scan_01()
+            elsif token == OPEN_BRACKET_TKN
+                ;
+                ; Array of arrays
+                ;
+                if !emit_val
+                    if type & ADDR_TYPE
+                        if type & LOCAL_TYPE
+                            emit_localaddr_10(value)
+                        else
+                            emit_globaladdr_10(value)
+                        fin
+                    elsif type & CONST_TYPE
+                        emit_const_10(value)
+                    fin
+                    emit_val = 1
+                fin ; !emit_val
+                repeat
+                        if emit_val > 1
+                                emit_indexword()
+                                emit_lw()
+                        fin
+                        emit_val = emit_val + 1
+                        if !parse_expr_01()
+                                return parse_err_11(@bad_expr)
+                        fin
+                        if token <> CLOSE_BRACKET_TKN
+                            return parse_err_11(@no_close_bracket)
+                        fin
+                until scan_01() <> OPEN_BRACKET_TKN
+                if elem_type & WPTR_TYPE
+                    emit_indexword()
+                else
+                    emit_indexbyte()
+                fin
+            else
+                return parse_err_11(@bad_offset)
+            fin
+            type = elem_type
+        elsif token == OPEN_PAREN_TKN
+            ;
+            ; Function call
+            ;
+            if !emit_val and type & VAR_TYPE
+                if type & LOCAL_TYPE
+                    emit_localaddr_10(value)
+                else
+                    emit_globaladdr_10(value)
+                fin
+            fin
+            if !(type & FUNC_CONST_TYPE)
+                    emit_push()
+            fin
+            drop parse_expr_01()
+            if token <> CLOSE_PAREN_TKN
+                return parse_err_11(@no_close_paren)
+            fin
+            if type & FUNC_CONST_TYPE
+                emit_call_10(value)
+            else
+                emit_pull()
+                emit_ical()
+            fin
+            emit_val = 1
+            type = WORD_TYPE
+            drop scan_01()
+        fin
+    loop
+    if emit_val
+        if rvalue
+            if deref and type & PTR_TYPE
+                if type & BPTR_TYPE
+                    emit_lb()
+                else
+                    emit_lw()
+                fin
+            fin
+        fin
+    else ; emit_val
+        if type & CONST_TYPE
+            emit_const_10(value)
+        elsif deref
+            if type & FUNC_TYPE
+                emit_call_10(value)
+            elsif type & VAR_TYPE
+                if type & LOCAL_TYPE
+                    if type & BYTE_TYPE
+                        emit_llb_10(value)
+                    else
+                        emit_llw_10(value)
+                    fin
+                else
+                    if type & BYTE_TYPE
+                        emit_lab_10(value)
+                    else
+                        emit_law_10(value)
+                    fin
+                fin
+            elsif type & PTR_TYPE
+                if type & BPTR_TYPE
+                    emit_lb()
+                else
+                    emit_lw()
+                fin
+            fin
+        else
+            if type & LOCAL_TYPE
+                emit_localaddr_10(value)
+            else
+                emit_globaladdr_10(value)
+            fin
+        fin
+    fin ; emit_val
+    while optos < opsp
+        if !emit_unaryop_11(pop_op_01())
+            return parse_err_11(@bad_op)
+        fin
+    loop
+    return type
+end
+def parse_constexpr_21(valptr, sizeptr)
+    byte type, size1, size2
+    word val1, val2
+
+    type = parse_constval_21(@val1, @size1)
+    if !type
+        return 0
+    fin
+    size2 = 0
+    when scan_01()
+        is ADD_TKN
+            type = parse_constval_21(@val2, @size2)
+            if !type
+                return 0
+            fin
+            *valptr = val1 + val2
+        is SUB_TKN
+            type = parse_constval_21(@val2, @size2)
+            if !type
+                return 0
+            fin
+            *valptr = val1 - val2
+        is MUL_TKN
+            type = parse_constval_21(@val2, @size2)
+            if !type
+                return 0
+            fin
+            *valptr = val1 * val2
+        is DIV_TKN
+            type = parse_constval_21(@val2, @size2)
+            if !type
+                return 0
+            fin
+            *valptr = val1 + val2
+        is MOD_TKN
+            type = parse_constval_21(@val2, @size2)
+            if !type
+                return 0
+            fin
+            *valptr = val1 % val2
+            drop
+        is AND_TKN
+            type = parse_constval_21(@val2, @size2)
+            if !type
+                return 0
+            fin
+            *valptr = val1 & val2
+        is OR_TKN
+            type = parse_constval_21(@val2, @size2)
+            if !type
+                return 0
+            fin
+            *valptr = val1 ? val2
+        is EOR_TKN
+            type = parse_constval_21(@val2, @size2)
+            if !type
+                return 0
+            fin
+            *valptr = val1 ^ val2
+        otherwise
+            *valptr = val1
+    wend
+    if size1 > size2
+        ^sizeptr = size1
+    else
+        ^sizeptr = size2
+    fin
+    return type
+end
+def parse_expr_01
+    byte prevmatch, matchop, i
+    word optos
+
+    matchop = 0
+    optos   = opsp
+    repeat
+        prevmatch = matchop
+        matchop     = 0
+        if parse_value_11(1)
+            matchop = 1
+            for i = 0 to bops_tblsz
+                if token == bops_tbl[i]
+                    matchop = 2
+                    if bops_prec[i] >= tos_op_prec_11(optos)
+                        if !emit_binaryop_11(pop_op_01())
+                            return parse_err_11(@bad_op)
+                        fin
+                    fin
+                    drop push_op_21(token, bops_prec[i])
+                    break
+                fin
+            next
+        fin
+    until matchop <> 2
+    if matchop == 0 and prevmatch == 2
+        return parse_err_11(@missing_op)
+    fin
+    while optos < opsp
+        if !emit_binaryop_11(pop_op_01())
+            return parse_err_11(@bad_op)
+        fin
+    loop
+    return matchop or prevmatch
+end
+def parse_setlist_21(addr, type)
+    word nexttype, nextaddr, idptr, saveptr
+
+    if !(type & VAR_TYPE)
+        emit_push()
+    fin
+    nexttype = 0
+    nextaddr = 0
+    if scan_01() == ID_TKN
+        idptr = id_lookup_21(tknptr, tknlen)
+        if !idptr
+            return FALSE
+        fin
+        nexttype = (idptr).idtype
+        if type & VAR_TYPE
+            nextaddr = (idptr):idval
+        fin
+    fin
+    saveptr = tknptr
+    drop scan_01()
+    if nexttype & VAR_TYPE and token == SET_TKN
+        drop parse_expr_01()
+        if type & LOCAL_TYPE
+            if type & BYTE_TYPE
+                emit_slb_10(nextaddr)
+            else
+                emit_slw_10(nextaddr)
+            fin
+        else
+            if type & BYTE_TYPE
+                emit_sab_10(nextaddr)
+            else
+                emit_saw_10(nextaddr)
+            fin
+        fin
+    elsif nexttype & VAR_TYPE and token == SETLIST_TKN
+        if !parse_setlist_21(nextaddr, nexttype)
+            return FALSE
+        fin
+    else
+        tknptr = saveptr
+        rewind_10(tknptr)
+        nexttype = parse_value_11(0)
+        if nexttype <> 0
+            if token == SET_TKN
+                emit_push()
+                drop parse_expr_01()
+                emit_pull()
+                emit_swap()
+                if nexttype & (BYTE_TYPE ? BPTR_TYPE)
+                    emit_sb()
+                else
+                    emit_sw()
+                fin
+            fin
+        elsif token == SETLIST_TKN
+            if !parse_setlist_21(0, nexttype)
+                return FALSE
+            fin
+        else
+            return parse_err_11(@bad_syntax)
+        fin
+    fin
+    if type & VAR_TYPE
+        if type & LOCAL_TYPE
+            if type & BYTE_TYPE
+                emit_slb_10(addr)
+            else
+                emit_slw_10(addr)
+            fin
+        else
+            if type & BYTE_TYPE
+                emit_sab_10(addr)
+            else
+                emit_saw_10(addr)
+            fin
+        fin
+    else
+        emit_pull()
+        emit_swap()
+        if type & (BYTE_TYPE ? BPTR_TYPE)
+            emit_sb()
+        else
+            emit_sw()
+        fin
+    fin
+    return TRUE
+end
+def parse_stmnt_01
+    byte type, i
+    word tag_prevbrk, tag_else, tag_endif, tag_while, tag_wend
+    word tag_repeat, tag_for, tag_choice, idptr, saveptr, addr, stepdir
+
+    if token <> END_TKN and token <> DONE_TKN
+        prevstmnt = token
+    fin
+    when token
+        is IF_TKN
+            drop parse_expr_01()
+            tag_else  = ctag_new_01()
+            tag_endif = ctag_new_01()
+            emit_brfls_10(tag_else)
+            drop scan_01()
+            repeat
+                while parse_stmnt_01()
+                    drop nextln_01()
+                loop
+                if token <> ELSEIF_TKN
+                    break
+                fin
+                emit_jump_10(tag_endif)
+                emit_codetag_10(tag_else)
+                if !parse_expr_01()
+                    return 0
+                fin
+                tag_else = ctag_new_01()
+                emit_brfls_10(tag_else)
+            until FALSE
+            if token == ELSE_TKN
+                emit_jump_10(tag_endif)
+                emit_codetag_10(tag_else)
+                drop scan_01()
+                while parse_stmnt_01()
+                    drop nextln_01()
+                loop
+                emit_codetag_10(tag_endif)
+            else
+                emit_codetag_10(tag_else)
+                emit_codetag_10(tag_endif)
+            fin
+            if token <> FIN_TKN
+                return parse_err_11(@no_fin)
+            fin
+        is FOR_TKN
+            stack_loop  = stack_loop + 1
+            tag_for     = ctag_new_01()
+            tag_prevbrk = break_tag
+            break_tag   = ctag_new_01()
+            if scan_01() <> ID_TKN
+                return parse_err_11(@bad_stmnt)
+            fin
+            idptr = id_lookup_21(tknptr, tknlen)
+            if idptr
+                type  = (idptr).idtype
+                addr  = (idptr):idval
+            else
+                return FALSE
+            fin
+            if scan_01() <> SET_TKN
+                return parse_err_11(@bad_stmnt)
+            fin
+            if !parse_expr_01()
+                return parse_err_11(@bad_stmnt)
+            fin
+            emit_codetag_10(tag_for)
+            if type & LOCAL_TYPE
+                if type & BYTE_TYPE
+                    emit_dlb_10(addr)
+                else
+                    emit_dlw_10(addr)
+                fin
+            else
+                if type & BYTE_TYPE
+                    emit_dab_10(addr)
+                else
+                    emit_daw_10(addr)
+                fin
+            fin
+            stepdir = 1
+            if token == TO_TKN
+                drop parse_expr_01()
+            elsif token == DOWNTO_TKN
+                drop parse_expr_01()
+                stepdir = -1
+            fin
+            if stepdir > 0
+                emit_brgt_10(break_tag)
+            else
+                emit_brlt_10(break_tag)
+            fin
+            if token == STEP_TKN
+                drop parse_expr_01()
+                if stepdir > 0
+                    drop emit_binaryop_11(ADD_TKN)
+                else
+                    drop emit_binaryop_11(SUB_TKN)
+                fin
+            else
+                if stepdir > 0
+                    drop emit_unaryop_11(INC_TKN)
+                else
+                    drop emit_unaryop_11(DEC_TKN)
+                fin
+            fin
+            while parse_stmnt_01()
+                drop nextln_01()
+            loop
+            if token <> NEXT_TKN
+                return parse_err_11(@bad_stmnt)
+            fin
+            emit_jump_10(tag_for)
+            emit_codetag_10(break_tag)
+            emit_drop()
+            break_tag = tag_prevbrk
+            stack_loop = stack_loop - 1
+        is WHILE_TKN
+            tag_while   = ctag_new_01()
+            tag_wend    = ctag_new_01()
+            tag_prevbrk = break_tag
+            break_tag   = tag_wend
+            emit_codetag_10(tag_while)
+            drop parse_expr_01()
+            emit_brfls_10(tag_wend)
+            while parse_stmnt_01()
+                drop nextln_01()
+            loop
+            if token <> LOOP_TKN
+                return parse_err_11(@no_loop)
+            fin
+            emit_jump_10(tag_while)
+            emit_codetag_10(tag_wend)
+            break_tag = tag_prevbrk
+        is REPEAT_TKN
+            tag_repeat  = ctag_new_01()
+            tag_prevbrk = break_tag
+            break_tag   = ctag_new_01()
+            emit_codetag_10(tag_repeat)
+            drop scan_01()
+            while parse_stmnt_01()
+                drop nextln_01()
+            loop
+            if token <> UNTIL_TKN
+                return parse_err_11(@no_until)
+            fin
+            drop parse_expr_01()
+            emit_brfls_10(tag_repeat)
+            emit_codetag_10(break_tag)
+            break_tag = tag_prevbrk
+        is CASE_TKN
+            stack_loop  = stack_loop + 1
+            tag_choice  = ctag_new_01()
+            tag_prevbrk = break_tag
+            break_tag   = ctag_new_01()
+            drop parse_expr_01()
+            drop nextln_01()
+            while token <> ENDCASE_TKN
+                when token
+                    is OF_TKN
+                        if !parse_expr_01()
+                            return parse_err_11(@bad_stmnt)
+                        fin
+                        emit_brne_10(tag_choice)
+                        while parse_stmnt_01()
+                            drop nextln_01()
+                        loop
+                        emit_jump_10(break_tag)
+                        emit_codetag_10(tag_choice)
+                        tag_choice = ctag_new_01()
+                    is DEFAULT_TKN
+                        drop scan_01()
+                        while parse_stmnt_01()
+                            drop nextln_01()
+                        loop
+                        if token <> ENDCASE_TKN
+                            return parse_err_11(@bad_stmnt)
+                        fin
+                    otherwise
+                        return parse_err_11(@bad_stmnt)
+                wend
+            loop
+            emit_codetag_10(break_tag)
+            emit_drop()
+            break_tag = tag_prevbrk
+            stack_loop = stack_loop - 1
+        is BREAK_TKN
+            if break_tag
+                emit_jump_10(break_tag)
+            else
+                return parse_err_11(@bad_stmnt)
+            fin
+        is RETURN_TKN
+            if infunc
+                for i = 1 to stack_loop
+                    emit_drop()
+                next
+                drop parse_expr_01()
+                emit_leave_10(framesize)
+            else
+                return parse_err_11(@bad_stmnt)
+            fin
+        is EXIT_TKN
+            drop parse_expr_01()
+            emit_exit()
+        is DROP_TKN
+            drop parse_expr_01()
+            emit_drop()
+        is ELSE_TKN
+            return FALSE
+        is ELSEIF_TKN
+            return FALSE
+        is FIN_TKN
+            return FALSE
+        is LOOP_TKN
+            return FALSE
+        is UNTIL_TKN
+            return FALSE
+        is NEXT_TKN
+            return FALSE
+        is OF_TKN
+            return FALSE
+        is DEFAULT_TKN
+            return FALSE
+        is ENDCASE_TKN
+            return FALSE
+        is END_TKN
+            return FALSE
+        is DONE_TKN
+            return FALSE
+        is IFUNC_TKN
+            return FALSE
+        is NFUNC_TKN
+            return FALSE
+        is EOF_TKN
+            return FALSE
+        is EOL_TKN
+            return TRUE
+        otherwise
+            if token == ID_TKN
+                saveptr = tknptr
+                idptr = id_lookup_21(tknptr, tknlen)
+                if !idptr
+                    return FALSE
+                fin
+                type = (idptr).idtype
+                if type & ADDR_TYPE
+                    addr = (idptr):idval
+                    if scan_01() == SET_TKN
+                        if type & VAR_TYPE
+                            drop parse_expr_01()
+                            if type & LOCAL_TYPE
+                                if type & BYTE_TYPE
+                                    emit_slb_10(addr)
+                                else
+                                    emit_slw_10(addr)
+                                fin
+                            else
+                                if type & BYTE_TYPE
+                                    emit_sab_10(addr)
+                                else
+                                    emit_saw_10(addr)
+                                fin
+                            fin
+                            return TRUE
+                        fin
+                    elsif token == SETLIST_TKN and type & VAR_TYPE
+                            return parse_setlist_21(addr, type);
+                    elsif token == EOL_TKN and type & FUNC_TYPE
+                        emit_call_10(addr)
+                        return TRUE
+                    fin
+                fin
+                tknptr = saveptr
+            fin
+            rewind_10(tknptr)
+            type = parse_value_11(0)
+            if type
+                if token == SET_TKN
+                    drop parse_expr_01()
+                    if type & XBYTE_TYPE
+                        emit_sb()
+                    else
+                        emit_sw()
+                    fin
+                elsif token == SETLIST_TKN
+                        return parse_setlist_21(0, type);
+                else
+                    if type & BPTR_TYPE
+                        emit_lb()
+                    elsif type & WPTR_TYPE
+                        emit_lw()
+                    fin
+                fin
+            else
+                return parse_err_11(@bad_syntax)
+            fin
+    wend
+    if scan_01() <> EOL_TKN
+        return parse_err_11(@bad_syntax)
+    fin
+    return TRUE
+end
+def parse_var_11(type)
+    byte consttype, constsize, idlen
+    word idptr, constval, arraysize, size
+
+    idlen = 0
+    size  = 1
+    if scan_01() == ID_TKN
+        idptr = tknptr
+        idlen = tknlen
+        if scan_01() == OPEN_BRACKET_TKN
+            size = 0
+            drop parse_constexpr_21(@size, @constsize)
+            if token <> CLOSE_BRACKET_TKN
+                return parse_err_11(@no_close_bracket)
+            fin
+            drop scan_01()
+        fin
+    fin
+    if type == WORD_TYPE
+        size = size * 2
+    fin
+    if token == SET_TKN
+        if infunc
+            return parse_err_11(@no_local_init)
+        fin
+        if idlen
+            drop iddata_add_41(idptr, idlen, type, 0)
+        fin
+        consttype = parse_constexpr_21(@constval, @constsize)
+        if consttype
+            arraysize = emit_data_41(type, consttype, constval, constsize)
+            while token == COMMA_TKN
+                consttype = parse_constexpr_21(@constval, @constsize)
+                if consttype
+                    arraysize = arraysize + emit_data_41(type, consttype, constval, constsize)
+                else
+                    return parse_err_11(@bad_decl)
+                fin
+            loop
+            if token <> EOL_TKN
+                return parse_err_11(@no_close_bracket)
+            fin
+            iddata_size_30(PTR_TYPE, size, arraysize);
+        else
+            return parse_err_11(@bad_decl)
+        fin
+    elsif idlen
+        if infunc
+            drop idlocal_add_41(idptr, idlen, type, size)
+        else
+            drop iddata_add_41(idptr, idlen, type, size)
+        fin
+    fin
+    return TRUE
+end
+def parse_vars_01
+    byte idlen, type, size
+    word value, idptr
+
+    when token
+        is CONST_TKN
+            if scan_01() <> ID_TKN
+                return parse_err_11(@bad_cnst)
+            fin
+            idptr = tknptr;
+            idlen = tknlen
+            if scan_01() <> SET_TKN
+                return parse_err_11(@bad_cnst)
+            fin
+            if !parse_constexpr_21(@value, @size)
+                return parse_err_11(@bad_cnst)
+            fin
+            drop idconst_add_31(idptr, idlen, value)
+        is BYTE_TKN
+            type = BYTE_TYPE
+            repeat
+                if !parse_var_11(type)
+                    return FALSE
+                fin
+            until token <> COMMA_TKN
+        is WORD_TKN
+            type = WORD_TYPE
+            repeat
+                if !parse_var_11(type)
+                    return FALSE
+                fin
+            until token <> COMMA_TKN
+        is FUNC_TKN
+            repeat
+                if scan_01() == ID_TKN
+                    drop idfunc_add_31(tknptr, tknlen, ctag_new_01())
+                else
+                    return parse_err_11(@bad_decl)
+                fin
+            until scan_01() <> COMMA_TKN
+        is EOL_TKN
+            return TRUE
+        otherwise
+            return FALSE
+    wend
+    return TRUE
+end
+def parse_func_01
+    byte opt, cfnparms
+    word func_tag, idptr
+
+    if token == IFUNC_TKN or token == NFUNC_TKN
+        opt = token - IFUNC_TKN
+        if scan_01() <> ID_TKN
+            return parse_err_11(@bad_decl)
+        fin
+        cfnparms = 0
+        infunc   = TRUE
+        idptr = idglobal_lookup_21(tknptr, tknlen)
+        if idptr
+            func_tag = (idptr):idval
+        else
+            func_tag = ctag_new_01()
+            drop idfunc_add_31(tknptr, tknlen, func_tag)
+        fin
+        emit_codetag_10(func_tag)
+        retfunc_tag = ctag_new_01()
+        idlocal_init()
+        if scan_01() == OPEN_PAREN_TKN
+          repeat
+        if scan_01() == ID_TKN
+          cfnparms = cfnparms + 1
+          drop idlocal_add_41(tknptr, tknlen, WORD_TYPE, 2)
+          drop scan_01()
+        fin
+            until token <> COMMA_TKN
+            if token <> CLOSE_PAREN_TKN
+                return parse_err_11(@bad_decl)
+            fin
+            drop scan_01()
+        fin
+        while parse_vars_01()
+            drop nextln_01()
+        loop
+        emit_enter_20(framesize, cfnparms)
+        prevstmnt = 0
+        while parse_stmnt_01()
+            drop nextln_01()
+        loop
+        infunc = FALSE
+        if token <> END_TKN
+            return parse_err_11(@bad_syntax)
+        fin
+        if scan_01() <> EOL_TKN
+            return parse_err_11(@bad_syntax)
+        fin
+        if prevstmnt <> RETURN_TKN
+            emit_leave_10(framesize)
+        fin
+        return TRUE
+    elsif token == EOL_TKN
+        return TRUE
+    fin
+    return FALSE
+end
+def parse_module_01
+    entrypoint = 0
+    idglobal_init()
+    idlocal_init()
+    if nextln_01()
+        while parse_vars_01()
+            drop nextln_01()
+        loop
+        while parse_func_01()
+            drop nextln_01()
+        loop
+        if token <> DONE_TKN
+            emit_start()
+            prevstmnt = 0
+            while parse_stmnt_01()
+                drop nextln_01()
+            loop
+            if token <> DONE_TKN
+                drop parse_err_11(@no_done)
+            fin
+            if prevstmnt <> EXIT_TKN
+                emit_const_10(0)
+                emit_exit()
+            fin
+        fin
+        ; dumpsym(idglobal_tbl, globals)
+        ; prstr(@entrypt_str)
+        ; prword(entrypoint)
+        ; crout()
+        ; keyin_01()
+        return TRUE
+    fin
+    return FALSE
+end
+def exec
+	when execentry()
+		is 0
+	        crout()
+    	    prstr(@donemsg)
+		is 1
+			crout()
+			prstr(@brkmsg)
+		is 2
+			crout()
+			prstr(@stkovflwmsg)
+	wend
+end
+;
+; Compile PLASMA file and execute it
+;
+;emptystk = estk()
+prstr(@version)
+crout()
+if ^argbuff
+    inref = open_21(argbuff, iobuffer)
+else
+    inref = open_21(rdstr($BA), iobuffer)
+fin
+if inref
+    drop newline_31(inref, $7F, $0D)
+    if parse_module_01()
+        drop close_11(inref)
+        exec(entrypoint)
+		;
+		; Close all files
+		;
+		^$BFD8 = 0
+		drop close_11(0)
+    else
+        drop close_11(inref)
+        crout()
+        prstr(@badfile)
+    fin
+	cin()
+;   crout
+;   dumpsym(@idglobal_tbl, globals)
+;   crout
+fin
+done

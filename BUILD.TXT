@@ -1,0 +1,13 @@
+This is the initial build process based on my very crusty and horrible makefile.  This should improve as help arrives.
+
+1. Download/build/install cc65
+2. Install Java developers kit
+3. Check out vm02 source
+4. 'cd vm02/src'
+5. 'make clean'
+6. 'make'
+7. 'make image'
+
+This will put the binary files into the vm02/release-$(VERSION) and vm02/samples-$(VERSION) directories in Virtual ][ name format.  You can use something like CiderPress to copy the files into a disk image if you don't use Virtual ][.
+
+Dave...

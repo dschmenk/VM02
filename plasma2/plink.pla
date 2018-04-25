@@ -1,0 +1,832 @@
+CONST FALSE        = 0
+CONST TRUE         = NOT FALSE
+CONST OK           = 0
+CONST ERROR        = -1
+CONST INPUTSTR     = $01FF
+CONST INBUFF       = $0800
+CONST OUTBUFF      = $0C00
+CONST SYMTABLE     = $1000
+CONST SYMSIZE      = $1000
+CONST MODFILES     = $7F00
+CONST DATABUFF     = $8000
+WORD NEXTENTRY     = SYMTABLE
+BYTE PLASMASTR[]   = "PLASMA LINKER 0.8"
+BYTE NULLSTR[]     = ""
+BYTE BADMODSTR[]   = "MODULE NOT FOUND"
+BYTE ASMADR[]      = "ASM ADDRESS: $"
+BYTE LOADADR[]     = "LOAD ADDRESS: $"
+BYTE DATASZ[]      = "DATA SIZE: $"
+BYTE RELOFSTSTR[]  = "REL OFFSET: $"
+BYTE FIX16STR[]    = "FIXUP 16-BIT ADDRESS: $"
+BYTE FIX8STR[]     = "FIXUP 8-BIT ADDRESS: $"
+BYTE RLDLBL[]      = "RELOCATION DIRECTORY:"
+BYTE ESDLBL[]      = "SYMBOL TABLE:"
+BYTE MATCHEXTRNSTR = "MATCH EXTRN: "
+BYTE INPUTFILESTR  = "INPUT FILE"
+BYTE OUTPUTFILESTR = "OUTPUT FILE"
+BYTE BADEXT[]      = "UNRESOLVED EXTERNAL SYMBOL: "
+BYTE DUPSYMERR[]   = "DUPLICATE EXTERNAL SYMBOL: "
+BYTE ERROUTSTR     = "ERROR CREATING OUTPUT FILE"
+BYTE PRESSANYKEY[] = "PRESS ANY KEY TO CONTINUE..."
+BYTE BINFILESTR[80]
+BYTE MODCOUNT, MODI
+BYTE BINREF, BINTYPE
+WORD MODFILE,MODBUFF,MODLEN,MODADDR,LINKADDR
+BYTE PERR
+;
+; Defines for ASM routines
+;
+ASM EQUATES
+        TMP     EQU     $F0
+        TMPL    EQU     TMP
+        TMPH    EQU     TMP+1
+        SRC     EQU     TMP
+        SRCL    EQU     SRC
+        SRCH    EQU     SRC+1
+        DST     EQU     SRC+2
+        DSTL    EQU     DST
+        DSTH    EQU     DST+1
+        ESP     EQU     DST+2
+JMPTMP:	JMP		(TMP)
+END
+;
+; CALL 6502 ROUTINE
+; ROMCALL(AREG, XREG, YREG, STATUS, ADDR)
+;
+ASM ROMCALL
+        PHP
+        LDA     ESTKL,X
+        STA     TMPL
+        LDA     ESTKH,X
+        STA     TMPH
+        INX
+        LDA     ESTKL,X
+        PHA
+        INX
+        LDA     ESTKL,X
+        TAY
+        INX
+        LDA     ESTKL+1,X
+        PHA
+        LDA     ESTKL,X
+        INX
+        STX     ESP
+        TAX
+        PLA
+        BIT     ROMIN
+        PLP
+        JSR     JMPTMP
+        PHP
+        BIT     LCBNK2
+        STA     REGVALS+0
+        STX     REGVALS+1
+        STY     REGVALS+2
+        PLA
+        STA     REGVALS+3
+        LDX     ESP
+        LDA     #<REGVALS
+        LDY     #>REGVALS
+        STA     ESTKL,X
+        STY     ESTKH,X
+        PLP
+        RTS
+REGVALS: DS 4
+END
+;
+; CALL PRODOS
+; SYSCALL(CMD, PARAMS)
+;
+ASM SYSCALL
+        LDA     ESTKL,X
+        LDY     ESTKH,X
+        STA     PARAMS
+        STY     PARAMS+1
+        INX
+        LDA     ESTKL,X
+        STA     CMD
+        STX     ESP
+        BIT     ROMIN
+        JSR     $BF00
+CMD:    DB      00
+PARAMS: DW      0000
+        BIT     LCBNK2
+        LDX     ESP
+        STA     ESTKL,X
+        LDY     #$00
+        STY     ESTKH,X
+END
+;
+; SET MEMORY TO VALUE
+; MEMSET(VALUE, ADDR, SIZE)
+;
+ASM MEMSET
+        LDY     #$00
+        LDA     ESTKL+1,X
+        STA     DSTL
+        LDA     ESTKH+1,X
+        STA     DSTH
+        INC     ESTKL,X
+        INC     ESTKH,X
+SETMEM: DEC     ESTKL,X
+        BNE     :+
+        DEC     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKL+2,X
+        STA     (DST),Y
+        INY
+        BNE     :+
+        INC     DSTH
+:       DEC     ESTKL,X
+        BNE     :+
+        DEC     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKH+2,X
+        STA     (DST),Y
+        INY
+        BNE     SETMEM
+        INC     DSTH
+        BNE     SETMEM
+MEMEXIT: INX
+        INX
+        INX
+END
+;
+; COPY MEMORY
+; MEMCPY(SRCADDR, DSTADDR, SIZE)
+;
+ASM MEMCPY
+        LDY     #$00
+        LDA     ESTKL,X
+        BNE     :+
+        LDA     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKL+1,X
+        STA     DSTL
+        LDA     ESTKH+1,X
+        STA     DSTH
+        LDA     ESTKL+2,X
+        STA     SRCL
+        LDA     ESTKH+2,X
+        STA     SRCH
+        CMP     DSTH
+        BCC     REVCPY
+        BNE     FORCPY
+        LDA     SRCL
+        CMP     DSTL
+        BCS     FORCPY
+REVCPY:             ; REVERSE DIRECTION COPY
+;       CLC
+        LDA     ESTKL,X
+        ADC     DSTL
+        STA     DSTL
+        LDA     ESTKH,X
+        ADC     DSTH
+        STA     DSTH
+        CLC
+        LDA     ESTKL,X
+        ADC     SRCL
+        STA     SRCL
+        LDA     ESTKH,X
+        ADC     SRCH
+        STA     SRCH
+        INC     ESTKH,X
+REVCPYLP:
+        LDA     DSTL
+        BNE     :+
+        DEC     DSTH
+:       DEC     DSTL
+        LDA     SRCL
+        BNE     :+
+        DEC     SRCH
+:       DEC     SRCL
+        LDA     (SRC),Y
+        STA     (DST),Y
+        DEC     ESTKL,X
+        BNE     REVCPYLP
+        DEC     ESTKH,X
+        BNE     REVCPYLP
+        BEQ     MEMEXIT
+FORCPY: INC     ESTKH,X
+FORCPYLP:
+        LDA     (SRC),Y
+        STA     (DST),Y
+        INC     DSTL
+        BNE     :+
+        INC     DSTH
+:       INC     SRCL
+        BNE     :+
+        INC     SRCH
+:       DEC     ESTKL,X
+        BNE     FORCPYLP
+        DEC     ESTKH,X
+        BNE     FORCPYLP
+        BEQ     MEMEXIT
+END
+;
+; CHAR OUT
+; COUT(CHAR)
+;
+ASM COUT
+        LDA     ESTKL,X
+        INX
+        ORA     #$80
+        BIT     ROMIN
+        JSR     $FDED
+        BIT     LCBNK2
+END
+;
+; CHAR IN
+; RDKEY()
+;
+ASM CIN
+        BIT     ROMIN
+        STX     ESP
+        JSR     $FD0C
+        LDX     ESP
+        BIT     LCBNK2
+        DEX
+        AND     #$7F
+        STA     ESTKL,X
+        LDY     #$00
+        STY     ESTKH,X
+END
+;
+; PRINT STRING
+; PRSTR(STR)
+;
+ASM PRSTR
+        LDY     #$00
+        LDA     ESTKL,X
+        STA     SRCL
+        LDA     ESTKH,X
+        STA     SRCH
+        BIT     ROMIN
+        LDA     (SRC),Y
+        STA     ESTKL,X
+        BEQ     :+
+_PRS1:  INY
+        LDA     (SRC),Y
+        ORA     #$80
+        JSR     $FDED
+        TYA
+        CMP     ESTKL,X
+        BNE     _PRS1
+:       INX
+        BIT     LCBNK2
+END
+;
+; READ STRING
+; STR = RDSTR(PROMPTCHAR)
+;
+ASM RDSTR
+        LDA     ESTKL,X
+        STA     $33
+        STX     ESP
+        BIT     ROMIN
+        JSR     $FD6A
+        BIT     LCBNK2
+        STX     $01FF
+:       LDA     $01FF,X
+        AND     #$7F
+        STA     $01FF,X
+        DEX
+        BPL     :-
+        LDX     ESP
+        LDA     #$FF
+        STA     ESTKL,X
+        LDA     #$01
+        STA     ESTKH,X
+END
+;
+; CONVERT CHARACTER TO UPPER CASE (AND STRIP MSB)
+; CH = TOUPPER(CH)
+;
+ASM TOUPPER
+        LDA     ESTKL,X
+		AND		#$7F
+        CMP     #'a'
+        BCC     :+
+        CMP     #'z'+1
+        BCS     :+
+						; SEC
+        SBC     #$1F	; SBC #$20
+:       STA     ESTKL,X
+END
+DEF CROUT
+    COUT($0D)
+END
+DEF BADMOD
+    PRSTR(@BADMODSTR)
+    CROUT()
+END
+DEF PRBYTE(VAL)
+  DROP ROMCALL(VAL, 0, 0, 0, $FDDA)
+END
+DEF PRWORD(VAL)
+  DROP ROMCALL(VAL >> 8, VAL, 0, 0, $F941)
+END
+;
+; BASIC FILE I/O
+;
+DEF GETFILEINFO(PATH, INFOPTR)
+    BYTE PARAMS[18]
+
+    PARAMS.0 = 10
+    PARAMS:1 = PATH
+    PERR     = SYSCALL($C4, @PARAMS)
+    IF NOT PERR
+        MEMCPY(@PARAMS.3, INFOPTR, 15)
+    FIN
+    RETURN PERR
+END
+DEF DESTROY(PATH)
+    BYTE PARAMS[3]
+
+    PARAMS.0 = 1
+    PARAMS:1 = PATH
+    PERR = SYSCALL($C1, @PARAMS)
+    RETURN PERR
+END
+DEF CREATE(PATH, ACCESS, TYPE, AUX)
+    BYTE PARAMS[12]
+
+    PARAMS.0  = 7
+    PARAMS:1  = PATH
+    PARAMS.3  = ACCESS
+    PARAMS.4  = TYPE
+    PARAMS:5  = AUX
+    PARAMS.7  = $1
+    PARAMS:8  = 0
+    PARAMS:10 = 0
+    PERR = SYSCALL($C0, @PARAMS)
+    RETURN PERR
+END
+DEF OPEN(PATH, BUFF)
+    BYTE PARAMS[6]
+
+    PARAMS.0 = 3
+    PARAMS:1 = PATH
+    PARAMS:3 = BUFF
+    PARAMS.5 = 0
+    PERR     = SYSCALL($C8, @PARAMS)
+    RETURN PARAMS.5
+END
+DEF CLOSE(REFNUM)
+    BYTE PARAMS[2]
+
+    PARAMS.0 = 1
+    PARAMS.1 = REFNUM
+    PERR     = SYSCALL($CC, @PARAMS)
+    RETURN PERR
+END
+DEF READ(REFNUM, BUFF, LEN)
+    BYTE PARAMS[8]
+
+    PARAMS.0 = 4
+    PARAMS.1 = REFNUM
+    PARAMS:2 = BUFF
+    PARAMS:4 = LEN
+    PARAMS:6 = 0
+    PERR     = SYSCALL($CA, @PARAMS)
+    RETURN PARAMS:6
+END
+DEF WRITE(REFNUM, BUFF, LEN)
+    BYTE PARAMS[8]
+    PARAMS.0 = 4
+    PARAMS.1 = REFNUM
+    PARAMS:2 = BUFF
+    PARAMS:4 = LEN
+    PARAMS:6 = 0
+    PERR     = SYSCALL($CB, @PARAMS)
+    RETURN PARAMS:6
+END
+;
+; REL MODULE FIXUPS
+;
+;DEF DUMPRLD(RLD)
+;    COUT('$')
+;    PRBYTE(^RLD)
+;    COUT(':')
+;    COUT(' ')
+;    COUT('$')
+;    PRWORD(*(RLD + 1))
+;    COUT(' ')
+;    COUT('$')
+;    PRBYTE(^(RLD + 3))
+;    CROUT
+;    RETURN RLD + 4
+;END
+;DEF DUMPESD(ESD)
+;    WHILE ^ESD & $80
+;        COUT(^ESD)
+;        ESD = ESD + 1
+;    LOOP
+;    COUT(^ESD)
+;    COUT(':')
+;    COUT(' ')
+;    COUT('$')
+;    PRBYTE(^(ESD + 1))
+;    COUT(' ')
+;    COUT('$')
+;    PRWORD(^(ESD + 2))
+;    CROUT
+;    RETURN ESD + 4
+;END
+DEF MATCHSTR(STR1, STR2)
+    BYTE I
+    IF ^STR1 == ^STR2
+        FOR I = ^STR1 DOWNTO 1
+            IF (STR1).[I] <> (STR2).[I]
+                RETURN FALSE
+            FIN
+        NEXT
+        RETURN TRUE
+    FIN
+    RETURN FALSE
+END
+;
+; THE GLOBAL SYMBOL DICTIONARY HAS THE FORMAT OF:
+;    STRING: NAME (VARIABLE LENGTH)
+;    WORD:   ADDRESS
+;
+DEF DUMPDICT
+    WORD DICTPTR
+
+    DICTPTR = SYMTABLE
+    CROUT()
+    WHILE ^DICTPTR
+        PRSTR(DICTPTR)
+        COUT(':')
+        COUT(' ')
+        COUT('$')
+        PRWORD(*(DICTPTR + ^DICTPTR + 1))
+        CROUT()
+        DICTPTR = DICTPTR  + ^DICTPTR + 3 ; NEXT ENTRY
+    LOOP
+END
+DEF SEARCHDICT(SYMSTR)
+    WORD DICTPTR
+
+    DICTPTR = SYMTABLE
+    ;
+    ; SEARCH GLOBAL DICTIONARY LOOKING FOR MATCH
+    ;
+    WHILE ^DICTPTR
+        IF MATCHSTR(DICTPTR, SYMSTR)
+            RETURN DICTPTR + ^DICTPTR + 1
+        FIN
+        DICTPTR = DICTPTR + ^DICTPTR + 3 ; NEXT ENTRY
+    LOOP
+    RETURN 0
+END
+DEF ADDSYM(SYMSTR, ADDR)
+    IF SEARCHDICT(SYMSTR)
+        PRSTR(@DUPSYMERR)
+        PRSTR(SYMSTR)
+        CROUT()
+        RETURN ERROR
+    FIN
+    MEMCPY(SYMSTR, NEXTENTRY, ^SYMSTR + 1)
+    NEXTENTRY = NEXTENTRY + ^NEXTENTRY
+    (NEXTENTRY):1 = ADDR
+    NEXTENTRY = NEXTENTRY + 3
+    RETURN OK
+END
+DEF MATCHEXTRN(INDEX, ESD)
+    BYTE SYMSTR[$81], I
+    WORD SYMPTR
+
+    ;
+    ; FIND MATCHING ESD INDEX
+    ;
+    WHILE ^ESD
+        SYMPTR = ESD
+        I = 1
+        WHILE ^ESD & $80
+            SYMSTR[I] = TOUPPER(^ESD)
+            I = I + 1
+            ESD = ESD + 1
+        LOOP
+        SYMSTR[I] = TOUPPER(^ESD)
+        SYMSTR    = I
+        IF ^(ESD + 1) & $10
+            IF ^(ESD + 2) == INDEX
+                RETURN SEARCHDICT(@SYMSTR)
+            FIN
+        FIN
+        ESD = ESD + 4
+    LOOP
+    RETURN 0
+END
+DEF PREXTRN(INDEX, ESD)
+    BYTE SYMSTR[$81], I
+    WORD SYMPTR
+
+    ;
+    ; FIND MATCHING ESD INDEX
+    ;
+    WHILE ^ESD
+        SYMPTR = ESD
+        I = 1
+        WHILE ^ESD & $80
+            SYMSTR[I] = TOUPPER(^ESD)
+            I = I + 1
+            ESD = ESD + 1
+        LOOP
+        SYMSTR[I] = TOUPPER(^ESD)
+        SYMSTR    = I
+        IF ^(ESD + 1) & $10
+            IF ^(ESD + 2) == INDEX
+                PRSTR(@SYMSTR)
+            FIN
+        FIN
+        ESD = ESD + 4
+    LOOP
+END
+;
+; THE EXTENDED MODULE FORMAT CONTAINS:
+;   DATA_SIZE (WORD)
+;   IF DATA_SIZE <> 0
+;     DATA_SEGMENT (0..DATA_SIZE)
+;   ELSE
+;     DATA_SIZE (WORD)
+;     BYTECODE_SIZE (WORD)
+;     BYTECODE_FUNCTION_COUNT (BYTE)
+;     DATA_SEGMENT (1..DATA_SIZE)
+;     BYTECODE_SEGMENT (1..BYTECODE_SIZE)
+;     BYTECODE_FUNCTION_DICTIONARY (0..BYTECODE_FUNCTION_COUNT * 6)
+;       BYTE: FLAGS
+;         BIT 7: ENTRY DEF
+;         BIT 0..1: OPTIMIZATION LEVEL (0, 1, 2, 3)
+;       WORD: FUNC SIZE
+;       WORD: FUNC OFFSET
+;       BYTE: ESD INDEX IF ENTRY
+;   FIN
+;   RELOCATEABLE_DICTIONARY
+;     BYTE: FLAGS
+;       BIT 7: SIZE OF RELOC FIELD - 1 = WORD, 0 = BYTE
+;       BIT 6: MSB/LSB OF WORD - 1 = MSB, 0 = LSB
+;       BIT 5: ENDIANNESS OF WORD - 1 = BIG, 0 = LITTLE
+;       BIT 4: EXTRN REF - 1 = EXTRN, 0 = NOT EXTERN
+;       BIT 3: BYTCODE FUNC - 1 = FUNC, 0 NOT FUNC
+;       BIT 2: SEGMENT FIXUP - 1 = BYTECODE, 0 = DATA
+;       BIT 0: NOT END OF RLD - 1 = NOT END, 0 = END
+;     WORD: FIXUP_OFFSET
+;     BYTE: 8 BIT VALUE/ESD INDEX IF EXTERN/FUNC INDEX IF BYTECODE FUNC
+;   END_OF_RLD = $00 (BYTE)
+;   EXTERNAL_SYMBOL_DICTIONARY
+;     STRING: NAME
+;     BYTE:   FLAGS
+;       BIT 4: EXTRN  REF
+;       BIT 3: EXPORT DEF
+;       BIT 2: MODULE DEP (UNUSED MACRO-BIT)
+;       BIT 1: BYTECODE ENTRY
+;     BYTE:   EXTRN SYMBOL INDEX/BYTECODE ENTRY INDEX/LSB OF EXPORT OFFSET
+;     BYTE:   EXTERN SYMBOL MODULE INDEX/MSB OF EXPORT OFFSET
+;   END_OF_ESD = $00 (BYTE)
+;
+DEF FIXUP(DATASEGPTR, CODESEGPTR, BFD, RLD, OFST, ESD, PASS)
+    WORD FIXVAL, FIXADDR, EXTRNVAL
+
+    WHILE ^RLD
+		IF ^RLD & $04
+			FIXADDR = CODESEGPTR + *(RLD + 1)
+		ELSE
+			FIXADDR = DATASEGPTR + *(RLD + 1)
+		FIN
+		IF ^RLD & $08
+			;
+			; BYTCODE FUNC INDEX ADDRESS
+			;
+			FIXVAL = BFD + (^(RLD + 3) * 6)
+		ELSIF ^RLD & $10
+			;
+			; EXTERNAL SYMBOL
+			;
+			EXTRNVAL = MATCHEXTRN(^(RLD + 3), ESD)
+			IF EXTRNVAL
+				FIXVAL = *EXTRNVAL
+			ELSIF PASS == 2
+				PRSTR(@BADEXT)
+				PREXTRN(^(RLD + 3), ESD)
+				CROUT()
+				RETURN ERROR
+			FIN
+		ELSE
+			;
+			; DATA ADDRESS
+			;
+			IF ^RLD & $80
+				;
+				; 16 BIT OFFSET
+				;
+				FIXVAL = OFST
+			ELSE
+				;
+				; 8 BIT VALUE FROM RLD TABLE
+				;
+				FIXVAL = ^(RLD + 3) + OFST
+			FIN
+		FIN
+        IF ^RLD & $80
+            ;
+            ; 16 BIT FIXUP
+            ;
+            IF ^RLD & $20 ; REVERSE HI AND LO BYTES
+                FIXVAL   = FIXVAL + ((FIXADDR).1 ? ((FIXADDR).0 << 8))
+				*FIXADDR = ((FIXVAL >> 8) & $FF) ? (FIXVAL << 8)
+            ELSE
+                *FIXADDR = FIXVAL + *FIXADDR
+            FIN
+        ELSE
+            ;
+            ; 8 BIT FIXUP
+            ;
+            IF ^RLD & $40
+                ^FIXADDR = (FIXVAL >> 8) + ^FIXADDR
+            ELSE
+                ^FIXADDR = FIXVAL + ^FIXADDR
+            FIN
+        FIN
+        RLD = RLD + 4
+    LOOP
+    RETURN OK
+END
+DEF LOADMOD(MODSTR, PASS)
+    BYTE REFNUM, I, INFO[15], SYMSTR[81]
+    WORD RELOFST, MODPTR, MODSYMTBL, MODSYMSZ, LEN
+    WORD DATASEG, CODESEG, DATALEN, CODELEN, NUMDEFS, BFD, RLD, ESD
+    WORD CODEOFST, BFDOFST
+
+    DROP GETFILEINFO(MODSTR, @INFO)
+    IF PERR OR INFO.1 <> $FE ; REL FILE TYPE
+        RETURN 0, 0
+    FIN
+    IF MODADDR
+        RELOFST = MODADDR - INFO:2
+    ELSE
+        MODADDR  = INFO:2
+        LINKADDR = MODADDR
+        RELOFST  = 0
+    FIN
+    MODADDR = MODADDR + DATALEN
+    ;
+    ; READ REL FILE
+    ;
+    REFNUM = OPEN(MODSTR, INBUFF)
+    LEN    = READ(REFNUM, DATABUFF, 16384)
+    DROP CLOSE(REFNUM)
+    ;
+    ; GET POINTERS TO IMPORTANT SECTIONS
+    ;
+    DATALEN = *DATABUFF
+    IF DATALEN == 0
+        ;
+        ; EXTENDED FORMAT REL
+        ;
+		MODPTR   = DATABUFF + 2
+        DATALEN  = (MODPTR):0
+        CODELEN  = (MODPTR):2
+        NUMDEFS  = (MODPTR).4
+        DATASEG  = MODPTR + 5
+        CODESEG  = DATASEG  + DATALEN
+        CODEOFST = RELOFST  + DATALEN
+        BFD      = CODESEG  + CODELEN
+        BFDOFST  = CODEOFST + CODELEN
+        MODPTR   = BFD
+        FOR I = 0 TO NUMDEFS
+			;
+			; REFORMAT BFD
+			;
+			(MODPTR).0 = $20 ; JSR
+			(MODPTR):1 = $03D6 ; INTERPX
+			(MODPTR):3 = (MODPTR):3 + CODEOFST ; FIXUP
+			(MODPTR).5 = $00 ; EXTERNAL BANK # (0 = MAIN MEM)
+            MODPTR  = MODPTR  + 6
+        NEXT
+    ELSE
+        ;
+        ; NORMAL FORMAT REL
+        ;
+        CODELEN = 0
+        DATASEG = DATABUFF + 2
+        CODESEG = 0
+        BFD     = 0
+        NUMDEFS = 0
+        MODPTR  = DATASEG + DATALEN
+    FIN
+    RLD = MODPTR
+    ESD = RLD
+    WHILE ^ESD ; SKIP OVER RLD
+        ESD = ESD + 4
+    LOOP
+    ESD = ESD + 1
+    ;
+    ; RUN THROUGH DATA FIXUP TABLE
+    ;
+    IF FIXUP(DATASEG, CODESEG, BFD, RLD, RELOFST, ESD, PASS)
+        RETURN 0, 0
+    FIN
+    ;
+    ; CHECK SYMBOL TABLE FOR EXPORTS/IMPORTS/MODULE DEPENDENCIES
+    ;
+    IF PASS == 1
+        WHILE ^ESD
+            I = 1
+            WHILE ^ESD & $80
+                SYMSTR[I] = TOUPPER(^ESD)
+                I = I + 1
+                ESD = ESD + 1
+            LOOP
+            SYMSTR[I] = TOUPPER(^ESD)
+            SYMSTR    = I
+            IF ^(ESD + 1) & $08 ; EXPORT SYMBOL
+                ;
+                ; ADD TO GLOBAL SYMBOL TABLE
+                ;
+                IF ADDSYM(@SYMSTR, *(ESD + 2) + RELOFST)
+                    RETURN 0, 0
+                FIN
+            ELSIF ^(ESD + 1) & $02 ; BYTECODE ENTRY SYMBOL
+                ;
+                ; ADD TO GLOBAL SYMBOL TABLE
+                ;
+                IF ADDSYM(@SYMSTR, ^(ESD + 2) * 6 + BFDOFST)
+                    RETURN 0, 0
+                FIN
+            ELSIF ^(ESD + 1) & $04 ; MODULE DEPENDENCY
+                ;
+                ; ADD MODULE DEPENDENCY TO MODFILE LIST
+                ;
+                MEMCPY(@SYMSTR, MODFILE, I + 1)
+                MODFILE  = MODFILE + I + 1
+                MODCOUNT = MODCOUNT + 1
+            FIN
+            ESD = ESD + 4
+        LOOP
+    FIN
+    RETURN DATASEG, DATALEN + CODELEN + NUMDEFS * 6
+END
+
+CROUT()
+PRSTR(@PLASMASTR)
+CROUT()
+MEMSET(0, SYMTABLE, SYMSIZE)
+MODCOUNT = 0
+MODFILE  = MODFILES
+MODADDR  = 0
+PRSTR(@INPUTFILESTR)
+WHILE ^(RDSTR($BA))
+    MEMCPY(INPUTSTR, MODFILE, ^INPUTSTR + 1)
+	MODFILE = MODFILE + ^MODFILE + 1
+	MODCOUNT = MODCOUNT + 1
+LOOP
+IF MODCOUNT
+	MODFILE  = MODFILES
+	FOR MODI = 0 TO MODCOUNT - 1
+		IF NOT LOADMOD(MODFILE, 1)
+			PRSTR(MODFILE)
+			COUT('?')
+			COUT(7)
+			CROUT()
+		FIN
+		DROP
+		MODFILE = MODFILE + ^MODFILE + 1
+	NEXT
+    MODADDR  = 0
+    MODFILE  = MODFILES
+    IF LINKADDR == $2000
+        BINTYPE = $FF
+    ELSE
+        BINTYPE = $06
+    FIN
+    PRSTR(@OUTPUTFILESTR)
+	RDSTR($BA)
+	MEMCPY(INPUTSTR, BINFILESTR, ^INPUTSTR + 1)
+    DROP DESTROY(BINFILESTR)
+    DROP CREATE(BINFILESTR, $C3, BINTYPE, LINKADDR)
+    BINREF = OPEN(BINFILESTR, OUTBUFF)
+    IF BINREF == 0
+        PRSTR(@ERROUTSTR)
+		PRSTR(INPUTSTR)
+    ELSE
+        FOR MODI = 0 TO MODCOUNT - 1
+            MODBUFF =, MODLEN = LOADMOD(MODFILE, 2)
+            DROP WRITE(BINREF, MODBUFF, MODLEN)
+            PRSTR(MODFILE)
+            COUT('@')
+            COUT('$')
+            PRWORD(MODADDR - MODLEN)
+            CROUT()
+            MODFILE = MODFILE + ^MODFILE + 1
+        NEXT
+        DROP CLOSE(BINREF)
+        DUMPDICT()
+    FIN
+    CROUT()
+    PRSTR(@PRESSANYKEY)
+    WHILE ^$C000 < 128
+    LOOP
+    DROP ^$C010
+FIN
+DONE

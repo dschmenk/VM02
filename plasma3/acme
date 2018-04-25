@@ -1,0 +1,16 @@
+; ACME COMPATIBLE OUTPUT
+;    1: byte a
+D0000	!FILL	1			; a
+;    2: 
+;    3: def add(b)
+C0000					; add()
+					; b = 2
+;    4:   return a + b
+	DB	$58,$04,$01		; ENTER	4,1
+	DB	$68,>D0000,<D0000	; LAB	D0000
+	DB	$66,$02			; LLW	2
+	DB	$02			; ADD
+	DB	$5A			; LEAVE
+;    5: end
+;    6: 
+;    7: done

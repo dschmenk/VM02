@@ -1,0 +1,1023 @@
+.DEFINE	EQU	=
+.DEFINE	DB	.BYTE
+.DEFINE	DW	.WORD
+.DEFINE	DS	.RES
+
+;**********************************************************
+;*
+;* VM ZERO PAGE LOCATIONS
+;*
+;**********************************************************
+ESTKSZ	EQU	$20
+ESTK	EQU	$C0
+ESTKL	EQU	ESTK
+ESTKH	EQU	ESTK+ESTKSZ/2
+VMZP	EQU	ESTK+ESTKSZ
+FRMP	EQU	VMZP+$00
+FRMPL	EQU	FRMP
+FRMPH	EQU	FRMP+1
+PC	EQU	VMZP+$02
+PCL	EQU	PC
+PCH	EQU	PC+1
+TICK	EQU	VMZP+$04
+ESP	EQU	VMZP+$05
+
+TMP	EQU	VMZP+$0A
+TMPL	EQU	TMP
+TMPH	EQU	TMP+1
+TMPX	EQU	TMP+2
+NPARMS	EQU	TMPL
+FRMSZ	EQU	TMPH
+DVSIGN	EQU	TMPX
+JSROP	EQU	VMZP+$0D
+
+        JMP     PLASMA
+        DB      $EE,$EE
+        DB      65,00
+        DS      64
+;*
+;* INIT AND ENTER INTO PLASMA BYTECODE INTERPRETER
+;*
+PLASMA:	CLD
+	LDY	#$20
+:	LDA	PAGE3,Y
+	STA	$03D0,Y
+	DEY
+	BPL	:-
+	LDA     #$00
+	LDY	#$BF
+	STA     FRMPL
+	STY	FRMPH
+	LDX     #$FE	; LEAVE $1FF AVAIL FOR RDSTR()
+	TXS
+        LDX	#ESTKSZ/2
+	STX	ESP
+	LDA     #$6C
+        STA     JSROP
+        LDA     #>OPTBL
+        STA     JSROP+2
+	LDA	#>START
+	STA	PCL
+	LDA	#<START
+	STA	PCH
+	JSR	FETCHOP
+;*
+;* EXIT TO NATIVE CODE
+;*
+EXIT:	JSR	$BF00
+	DB	$65
+	DW	PARMTABLE
+PARMTABLE:
+	DB	4
+	DB	0
+_RTS:	RTS
+_BRK:	BRK
+;*
+;* PAGE 3 VECTORS INTO INTERPRETER
+;*
+PAGE3:				; $03D0 - INTERP ENTRY
+	JMP	INTERP
+	NOP
+	NOP
+	NOP
+				; $03D6 - INTERPX ENTRY
+	JMP	INTERPX
+	NOP
+	NOP
+	NOP
+				; $03DC - LEAVE ENTRY
+	JMP	LEAVE
+	NOP
+	NOP
+	NOP
+				; $03E2 - ENTER ENTRY
+	JMP	ENTER
+	NOP
+	NOP
+	NOP
+	DW	_RTS		; $03E8 - PERIODIC VECTOR
+	DW	_BRK		; $03EA - INT VECTOR
+TMRVEC	EQU	$03E8
+INTVEC	EQU	$03EA
+;*
+;* ENTER INTO INTERPRETER
+;*
+INTERPX: PLA
+        STA     TMPL
+        PLA
+        STA     TMPH
+	LDY	#$01
+	LDA     (TMP),Y
+        STA	PCL
+	INY
+	LDA     (TMP),Y
+	STA	PCH
+        LDY	#$00
+	JMP	FETCHOP
+INTERP: PLA
+	STA	PC
+	PLA
+	STA	PC+1
+        LDY	#$00
+	INC     PCL
+	BNE     FETCHOP
+	INC     PCH
+FETCHOP: ; LDY #$00
+	LDA	(PC),Y
+	STA	JSROP+1
+        JSR     JSROP
+        INC     PCL
+        BNE     FETCHOP
+	INC	PCH
+        BNE     FETCHOP
+;JSROP:	JMP     (OPTBL)
+;*
+;* SHIFT TOS-1 LEFT BY 1, ADD TO TOS-1
+;*
+IDXW:	LDA	ESTKL,X
+        ASL
+	ROL	ESTKH,X
+	CLC
+	ADC	ESTKL+1,X
+	STA	ESTKL+1,X
+	LDA	ESTKH,X
+	ADC	ESTKH+1,X
+	STA	ESTKH+1,X
+	INX
+	RTS
+;*
+;* ADD TOS TO TOS-1
+;*
+ADD:	LDA	ESTKL,X
+	CLC
+	ADC	ESTKL+1,X
+	STA	ESTKL+1,X
+	LDA	ESTKH,X
+	ADC	ESTKH+1,X
+	STA	ESTKH+1,X
+	INX
+	RTS
+;*
+;* SUB TOS FROM TOS-1
+;*
+SUB:	LDA	ESTKL+1,X
+	SEC
+	SBC	ESTKL,X
+	STA	ESTKL+1,X
+	LDA	ESTKH+1,X
+	SBC	ESTKH,X
+	STA	ESTKH+1,X
+	INX
+	RTS
+;*
+;* MUL TOS-1 BY TOS
+;*
+MUL:	; LDY	#$00
+	STY	TMPL		; PRODL
+	STY	TMPH		; PRODH
+	LDY	#$10
+MUL1:	LSR	ESTKH,X		; MULTPLRH
+	ROR	ESTKL,X		; MULTPLRL
+	BCC	MUL2
+	LDA	ESTKL+1,X	; MULTPLNDL
+	CLC
+	ADC	TMPL		; PRODL
+	STA	TMPL
+	LDA	ESTKH+1,X	; MULTPLNDH
+	ADC	TMPH		; PRODH
+	STA	TMPH
+MUL2:	ASL	ESTKL+1,X	; MULTPLNDL
+	ROL	ESTKH+1,X	; MULTPLNDH
+	DEY
+	BNE	MUL1
+	INX
+	LDA	TMPL		; PRODL
+	STA	ESTKL,X
+	LDA	TMPH		; PRODH
+	STA	ESTKH,X
+	RTS
+;*
+;* SWAP TOS WITH TOS-1
+;*
+SWAP:   LDA     ESTKL,X
+        LDY     ESTKL+1,X
+        STA     ESTKL+1,X
+        STY     ESTKL,X
+        LDA     ESTKH,X
+        LDY     ESTKH+1,X
+        STA     ESTKH+1,X
+        STY     ESTKH,X
+        LDY     #$00
+        RTS
+;*
+;* DUPLICATE TOS
+;*
+DUP:	DEX
+	LDA	ESTKL+1,X
+	STA	ESTKL,X
+	LDA	ESTKH+1,X
+	STA	ESTKH,X
+	RTS
+;*
+;* OPCODE TABLE
+;*
+        DS      3
+OPTBL:	DW	ZERO,ADD,SUB,MUL,DIV,DIVMOD,INCR,DECR		; 00 02 04 06 08 0A 0C 0E
+	DW	NEG,COMP,BAND,IOR,XOR,SHL,SHR,IDXW		; 10 12 14 16 18 1A 1C 1E
+        DW	NOT,LOR,LAND,LA,LLA,CB,CW,SWAP			; 20 22 24 26 28 2A 2C 2E
+	DW	DROP,DUP,PUSH,PULL,SKPLT,SKPGT,SKPEQ,SKPNE	; 30 32 34 36 38 3A 3C 3E
+        DW	ISEQ,ISNE,ISGT,ISLT,ISGE,ISLE,SKPFLS,SKPTRU	; 40 42 44 46 48 4A 4C 4E
+	DW	SKIP,NOOP,CALL,ICAL,ENTER,LEAVE,RET,NOOP	; 50 52 54 56 58 5A 5C 5E
+	DW	LB,LW,LLB,LLW,LAB,LAW,DLB,DLW			; 60 62 64 66 68 6A 6C 6E
+	DW	SB,SW,SLB,SLW,SAB,SAW,DAB,DAW			; 70 72 74 76 78 7A 7C 7E
+_ISKIPTMP: JMP	(TMP)
+;*
+;* INTERNAL DIVIDE ALGORITHM
+;*
+_DIV:	LDA	ESTKH,X
+	AND	#$80
+	STA	DVSIGN
+	BPL	_DIV1
+	JSR	NEG
+	INC	DVSIGN
+_DIV1:	LDA	ESTKH+1,X
+	BPL	_DIV2
+	INX
+	JSR	NEG
+	DEX
+	INC	DVSIGN
+	BNE     _DIV3
+_DIV2:  ORA	ESTKL+1,X	; DVDNDL
+        BNE     _DIV3
+        STA     TMPL
+        STA     TMPH
+        TYA
+        RTS
+_DIV3:  LDY	#$11		; #BITS+1
+	LDA	#$00
+	STA	TMPL		; REMNDRL
+	STA	TMPH		; REMNDRH
+_DIV4:	ASL	ESTKL+1,X	; DVDNDL
+	ROL	ESTKH+1,X	; DVDNDH
+	DEY
+	BCC     _DIV4
+	STY	ESTKL-1,X
+_DIV5:  ROL	TMPL		; REMNDRL
+	ROL	TMPH		; REMNDRH
+	LDA	TMPL		; REMNDRL
+	SEC
+	SBC	ESTKL,X		; DVSRL
+	TAY
+	LDA	TMPH		; REMNDRH
+	SBC	ESTKH,X		; DVSRH
+	BCC	_DIV6
+	STA	TMPH		; REMNDRH
+	STY	TMPL		; REMNDRL
+_DIV6:	ROL	ESTKL+1,X	; DVDNDL
+	ROL	ESTKH+1,X	; DVDNDH
+	DEC	ESTKL-1,X
+	BNE	_DIV5
+        LDY     #$00
+	RTS
+DVSIGN:	DB	0
+;*
+;* DIV TOS-1 BY TOS
+;*
+DIV:	JSR	_DIV
+	INX
+	LSR	DVSIGN		; SIGN(RESULT) = (SIGN(DIVIDEND) + SIGN(DIVISOR)) & 1
+	BCS	NEG
+	RTS
+;*
+;* NEGATE TOS
+;*
+NEG:	TYA     		; LDA	#$00
+	SEC
+	SBC	ESTKL,X
+	STA	ESTKL,X
+	TYA			; LDA	#$00
+	SBC	ESTKH,X
+	STA	ESTKH,X
+NOOP:	RTS
+;*
+;* DIV,MOD TOS-1 BY TOS
+;*
+DIVMOD:	JSR	_DIV		; REMAINDER TOS
+	LDA	TMPL		; REMNDRL
+	STA	ESTKL,X
+	LDA	TMPH		; REMNDRH
+	STA	ESTKH,X
+	LDA	DVSIGN		; REMAINDER IS SIGN OF DIVIDEND
+	BPL	DIVMOD1
+	JSR	NEG
+DIVMOD1: LSR	DVSIGN
+	BCC	DIVMOD2		; DIV RESULT TOS-1
+	INX
+	JSR	NEG
+	DEX
+DIVMOD2: RTS
+;*
+;* INCREMENT TOS
+;*
+INCR:	INC	ESTKL,X
+	BNE	INCR1
+	INC	ESTKH,X
+INCR1:	RTS
+;*
+;* DECREMENT TOS
+;*
+DECR:	LDA	ESTKL,X
+	BNE	DECR1
+	DEC	ESTKH,X
+DECR1:	DEC	ESTKL,X
+	RTS
+;*
+;* BITWISE COMPLIMENT TOS
+;*
+COMP:	LDA	#$FF
+	EOR	ESTKL,X
+	STA	ESTKL,X
+	LDA	#$FF
+	EOR	ESTKH,X
+	STA	ESTKH,X
+	RTS
+;*
+;* BITWISE AND TOS TO TOS-1
+;*
+BAND:	LDA	ESTKL+1,X
+	AND	ESTKL,X
+	STA	ESTKL+1,X
+	LDA	ESTKH+1,X
+	AND	ESTKH,X
+	STA	ESTKH+1,X
+	INX
+	RTS
+;*
+;* INCLUSIVE OR TOS TO TOS-1
+;*
+IOR:	LDA	ESTKL+1,X
+	ORA	ESTKL,X
+	STA	ESTKL+1,X
+	LDA	ESTKH+1,X
+	ORA	ESTKH,X
+	STA	ESTKH+1,X
+	INX
+	RTS
+;*
+;* EXLUSIVE OR TOS TO TOS-1
+;*
+XOR:	LDA	ESTKL+1,X
+	EOR	ESTKL,X
+	STA	ESTKL+1,X
+	LDA	ESTKH+1,X
+	EOR	ESTKH,X
+	STA	ESTKH+1,X
+	INX
+	RTS
+;*
+;* SHIFT TOS-1 LEFT BY TOS
+;*
+SHL:	LDA	ESTKL,X
+        CMP     #$08
+        BCC     SHL1
+        LDY     ESTKL+1,X
+        STY     ESTKH+1,X
+        LDY     #$00
+        STY     ESTKL+1,X
+        SBC     #$08
+SHL1:	TAY
+        BEQ     SHL3
+SHL2:	ASL	ESTKL+1,X
+	ROL	ESTKH+1,X
+	DEY
+	BNE	SHL2
+SHL3:	INX
+	RTS
+;*
+;* SHIFT TOS-1 RIGHT BY TOS
+;*
+SHR:	LDA	ESTKL,X
+        CMP     #$08
+        BCC     SHR2
+        LDY     ESTKH+1,X
+        STY     ESTKL+1,X
+        CPY     #$80
+        LDY     #$00
+        BCC     SHR1
+        DEY
+SHR1:   STY     ESTKH+1,X
+        SEC
+        SBC     #$08
+SHR2:   TAY
+        BEQ     SHR4
+	LDA	ESTKH+1,X
+SHR3:	CMP	#$80
+	ROR
+	ROR	ESTKL+1,X
+	DEY
+	BNE     SHR3
+	STA     ESTKH+1,X
+SHR4:	INX
+	RTS
+;*
+;* LOGICAL NOT
+;*
+NOT:	LDA     ESTKL,X
+        ORA     ESTKH,X
+        BNE     NOT1
+        LDA     #$FF
+	STA     ESTKL,X
+        STA     ESTKH,X
+        RTS
+NOT1:   STY     ESTKL,X
+        STY     ESTKH,X
+        RTS
+;*
+;* LOGICAL AND
+;*
+LAND:	LDA     ESTKL,X
+        ORA     ESTKH,X
+        BEQ     LAND1
+        LDA     ESTKL+1,X
+        ORA     ESTKH+1,X
+        BEQ     LAND1
+        LDA     #$FF
+LAND1:	STA     ESTKL+1,X
+        STA     ESTKH+1,X
+	INX
+	RTS
+;*
+;* LOGICAL OR
+;*
+LOR:	LDA     ESTKL,X
+        ORA     ESTKH,X
+        ORA     ESTKL+1,X
+        ORA     ESTKH+1,X
+        BEQ     LOR1
+        LDA     #$FF
+LOR1:   STA     ESTKL+1,X
+        STA     ESTKH+1,X
+;*
+;* DROP TOS
+;*
+DROP:	INX
+	RTS
+;*
+;* PUSH FROM EVAL STACK TO CALL STACK
+;*
+PUSH:   PLA
+        STA     TMPH
+        PLA
+        STA     TMPL
+        LDA     ESTKL,X
+        PHA
+        LDA     ESTKH,X
+        PHA
+        INX
+        LDA     TMPL
+        PHA
+        LDA     TMPH
+        PHA
+        RTS
+;*
+;* PULL FROM CALL STACK TO EVAL STACK
+;*
+PULL:   PLA
+        STA     TMPH
+        PLA
+        STA     TMPL
+        DEX
+        PLA
+        STA     ESTKH,X
+        PLA
+        STA     ESTKL,X
+        LDA     TMPL
+        PHA
+        LDA     TMPH
+        PHA
+        RTS
+;*
+;* CONSTANT
+;*
+ZERO:   DEX
+	STY	ESTKL,X
+	STY	ESTKH,X
+	RTS
+CB:	DEX
+	INC	PCL
+	BNE	CB1
+	INC	PCH
+CB1:	LDA	(PC),Y
+	STA	ESTKL,X
+	STY	ESTKH,X
+	RTS
+LA:                             ; THIS IS FOR THE LOADER TO REPLACE ABS TAG WITH ADDRESS
+CW:	DEX
+	INC	PCL
+	BNE	CW1
+	INC	PCH
+CW1:	LDA	(PC),Y
+	STA	ESTKL,X
+	INC	PCL
+	BNE	CW2
+	INC	PCH
+CW2:	LDA	(PC),Y
+	STA	ESTKH,X
+	RTS
+;*
+;* LOAD VALUE FROM ADDRESS TAG
+;*
+
+LB:     LDA     ESTKL,X
+        STA     SRCL
+        LDA     ESTKH,X
+        STA     SRCH
+        LDA     (SRC),Y
+	STA     ESTKL,X
+	STY     ESTKH,X
+	RTS
+LW:     LDA     ESTKL,X
+        STA     SRCL
+        LDA     ESTKH,X
+        STA     SRCH
+        LDA     (SRC),Y
+        INY
+	STA     ESTKL,X
+        LDA     (SRC),Y
+	STA     ESTKH,X
+        DEY
+	RTS
+;*
+;* LOAD ADDRESS OF LOCAL FRAME OFFSET
+;*
+LLA:	INC	PCL
+	BNE	LLA1
+	INC	PCH
+LLA1:	LDA	(PC),Y
+	DEX
+	CLC
+	ADC	FRMPL
+	STA	ESTKL,X
+	LDA     #$00
+	ADC	FRMPH
+	STA	ESTKH,X
+	RTS
+;*
+;* LOAD VALUE FROM LOCAL FRAME OFFSET
+;*
+LLB:	INC	PCL
+	BNE	LLB1
+	INC	PCH
+LLB1:	LDA	(PC),Y
+        TAY
+	DEX
+        LDA	(FP),Y
+	LDY	#$00
+	STA	ESTKL,X
+	STY	ESTKH,X
+	RTS
+LLW:	INC	PCL
+	BNE	LLW1
+	INC	PCH
+LLW1:	LDA	(PC),Y
+        TAY
+	DEX
+        LDA	(FP),Y
+	STA	ESTKL,X
+	INY
+	LDA	(FP),Y
+	STA	ESTKH,X
+        LDY     #$00
+	RTS
+;*
+;* LOAD VALUE FROM ABSOLUTE ADDRESS
+;*
+LAB:	INC	PCL
+	BNE	LAB1
+	INC	PCH
+LAB1:	LDA	(PC),Y
+	STA	SRCL
+	INC	PCL
+	BNE	LAB2
+	INC	PCH
+LAB2:	LDA	(PC),Y
+	STA	SRCH
+	LDA	(SRC),Y
+	DEX
+	STA	ESTKL,X
+	STY	ESTKH,X
+	RTS
+LAW:	INC	PC
+	BNE	LAW1
+	INC	PCH
+LAW1:	LDA	(PC),Y
+	STA	SRCL
+	INC	PCL
+	BNE	LAW2
+	INC	PCH
+LAW2:	LDA	(PC),Y
+	STA	SRCH
+	DEX
+	LDA	(SRC),Y
+	STA	ESTKL,X
+	INY
+	LDA	(SRC),Y
+	STA	ESTKH,X
+        DEY
+	RTS
+;*
+;* STORE VALUE TO ADDRESS
+;*
+SB:     LDA     ESTKL+1,X
+        STA     DSTL
+        LDA     ESTKH+1,X
+        STA     DSTH
+	LDA     ESTKL,X
+        STA     (DST),Y
+        INX
+        INX
+	RTS
+SW:     LDA     ESTKL+1,X
+        STA     DSTL
+        LDA     ESTKH+1,X
+        STA     DSTH
+	LDA     ESTKL,X
+        STA     (DST),Y
+        INY
+	LDA     ESTKH,X
+        STA     (DST),Y
+        DEY
+        INX
+        INX
+	RTS
+;*
+;* STORE VALUE TO LOCAL FRAME OFFSET
+;*
+SLB:	INC	PCL
+	BNE	SLB1
+	INC	PCH
+SLB1:	LDA	(PC),Y
+        TAY
+	LDA	ESTKL,X
+	STA	(FP),Y
+	INX
+        LDY     #$00
+	RTS
+SLW:	INC	PCL
+	BNE	SLW1
+	INC	PCH
+SLW1:	LDA	(PC),Y
+        TAY
+	LDA	ESTKL,X
+	STA	(FP),Y
+	INY
+	LDA	ESTKH,X
+	STA	(FP),Y
+	INX
+        LDY     #$00
+	RTS
+;*
+;* STORE VALUE TO LOCAL FRAME OFFSET WITHOUT POPPING STACK
+;*
+DLB:	INC	PCL
+	BNE	DLB1
+	INC	PCH
+DLB1:	LDA	(PC),Y
+        TAY
+	LDA	ESTKL,X
+	STA	(FP),Y
+        LDY     #$00
+	RTS
+DLW:	INC	PCL
+	BNE	DLW1
+	INC	PCH
+DLW1:	LDA	(PC),Y
+        TAY
+	LDA	ESTKL,X
+	STA	(FP),Y
+	INY
+	LDA	ESTKH,X
+	STA	(FP),Y
+        LDY     #$00
+	RTS
+;*
+;* STORE VALUE TO ABSOLUTE ADDRESS
+;*
+SAB:	INC	PCL
+	BNE	SAB1
+	INC	PCH
+SAB1:	LDA	(PC),Y
+	STA	DSTL
+	INC	PCL
+	BNE	SAB2
+	INC	PCH
+SAB2:	LDA	(PC),Y
+	STA	DSTH
+	LDA	ESTKL,X
+	STA	(DST),Y
+	INX
+	RTS
+SAW:	INC	PCL
+	BNE	SAW1
+	INC	PCH
+SAW1:	LDA	(PC),Y
+	STA	DSTL
+	INC	PCL
+	BNE	SAW2
+	INC	PCH
+SAW2:	LDA	(PC),Y
+	STA	DSTH
+	LDA	ESTKL,X
+	STA	(DST),Y
+	INY
+	LDA	ESTKH,X
+	STA	(DST),Y
+	INX
+        DEY
+	RTS
+;*
+;* STORE VALUE TO ABSOLUTE ADDRESS WITHOUT POPPING STACK
+;*
+DAB:	INC	PCL
+	BNE	DAB1
+	INC	PCH
+DAB1:	LDA	(PC),Y
+	STA	DSTL
+	INC	PCL
+	BNE	DAB2
+	INC	PCH
+DAB2:	LDA	(PC),Y
+	STA	DSTH
+	LDA	ESTKL,X
+	STA	(DST),Y
+	RTS
+DAW:	INC	PCL
+	BNE	DAW1
+	INC	PCH
+DAW1:	LDA	(PC),Y
+	STA	DSTL
+	INC	PCL
+	BNE	DAW2
+	INC	PCH
+DAW2:	LDA	(PC),Y
+	STA	DSTH
+	LDA	ESTKL,X
+	STA	(DST),Y
+	INY
+	LDA	ESTKH,X
+	STA	(DST),Y
+        DEY
+	RTS
+;*
+;* COMPARES
+;*
+ISEQ:   ; LDY   #$00
+	LDA     ESTKL,X
+        CMP     ESTKL+1,X
+        BNE     ISEQ1
+        LDA     ESTKH,X
+        CMP     ESTKH+1,X
+        BNE     ISEQ1
+        DEY
+ISEQ1:	STY     ESTKL+1,X
+        STY     ESTKH+1,X
+        INX
+        LDY     #$00
+        RTS
+ISNE:	DEY                     ; LDY #$FF
+        LDA     ESTKL,X
+        CMP     ESTKL+1,X
+        BNE     ISNE1
+        LDA     ESTKH,X
+        CMP     ESTKH+1,X
+        BNE     ISNE1
+        INY
+ISNE1:	STY     ESTKL+1,X
+        STY     ESTKH+1,X
+        INX
+        LDY     #$00
+        RTS
+ISGE:   ; LDY   #$00
+	LDA     ESTKL+1,X
+	CMP     ESTKL,X
+	LDA     ESTKH+1,X
+	SBC     ESTKH,X
+	BVC	ISGE1
+	EOR	#$80
+ISGE1:	BMI     ISGE2
+	DEY
+ISGE2:	STY     ESTKL+1,X
+        STY     ESTKH+1,X
+        INX
+        LDY     #$00
+        RTS
+ISGT:	; LDY     #$00
+	LDA     ESTKL,X
+	CMP     ESTKL+1,X
+	LDA     ESTKH,X
+	SBC     ESTKH+1,X
+	BVC	ISGT1
+	EOR	#$80
+ISGT1:	BPL     ISGT2
+	DEY
+ISGT2:	STY     ESTKL+1,X
+        STY     ESTKH+1,X
+        INX
+        LDY     #$00
+        RTS
+ISLE:	; LDY   #$00
+	LDA     ESTKL,X
+	CMP     ESTKL+1,X
+	LDA     ESTKH,X
+	SBC     ESTKH+1,X
+	BVC	ISLE1
+	EOR	#$80
+ISLE1:	BMI     ISLE2
+	DEY
+ISLE2:	STY     ESTKL+1,X
+        STY     ESTKH+1,X
+        INX
+        LDY     #$00
+        RTS
+ISLT:	; LDY   #$00
+	LDA     ESTKL+1,X
+	CMP     ESTKL,X
+	LDA     ESTKH+1,X
+	SBC     ESTKH,X
+	BVC	ISLT1
+	EOR	#$80
+ISLT1:	BPL     ISLT2
+	DEY
+ISLT2:	STY     ESTKL+1,X
+        STY     ESTKH+1,X
+        INX
+        LDY     #$00
+        RTS
+;*
+;* SKIPS
+;*
+SKPTRU:	INX
+	LDA	ESTKH-1,X
+	ORA	ESTKL-1,X
+	BEQ	NOSKPNCH
+SKIP:	INY ; LDY	#$01
+	LDA	(PC),Y
+    PHA
+	INY
+	LDA	(PC),Y
+	STA	PCH
+    PLA
+	STA	PCL
+	PLA
+	PLA
+        LDY     #$00
+	JMP	FETCHOP
+SKPFLS:	INX
+	LDA	ESTKH-1,X
+	ORA	ESTKL-1,X
+	BEQ	SKIP
+NOSKPNCH: LDA	#$02
+	CLC
+	ADC	PCL
+	STA	PCL
+	BCC	NOSKPA1
+	INC	PCH
+NOSKPA1:	RTS
+SKPEQ:	INX
+        ; INX
+	LDA	ESTKL-1,X
+	CMP	ESTKL,X
+	BNE	NOSKPNCH
+	LDA	ESTKL-1,X
+	CMP	ESTKL,X
+	BEQ	SKIP
+	BNE	NOSKPNCH
+SKPNE:	INX
+        ; INX
+	LDA	ESTKL-1,X
+	CMP	ESTKL,X
+	BNE	SKIP
+	LDA	ESTKL-1,X
+	CMP	ESTKL,X
+	BEQ	NOSKPNCH
+	BNE	SKIP
+SKPGT:	INX
+        ; INX
+	LDA	ESTKL-1,X
+	CMP	ESTKL,X
+	LDA	ESTKH-1,X
+	SBC	ESTKH,X
+	BMI	SKIP
+	BPL	NOSKPNCH
+SKPLT:	INX
+        ; INX
+	LDA	ESTKL,X
+	CMP	ESTKL-1,X
+	LDA	ESTKH,X
+	SBC	ESTKH-1,X
+	BMI	SKIP
+	BPL	NOSKPNCH
+;*
+;* CALL INTO ABSOLUTE ADDRESS
+;*
+CALL:	INC	PCL
+	BNE	CALL1
+	INC	PCH
+CALL1:	LDA	(PC),Y
+	STA	TMPL
+	INC	PCL
+	BNE	CALL2
+	INC	PCH
+CALL2:	LDA	(PC),Y
+	STA	TMPH
+        LDA	PCH
+	PHA
+	LDA	PCL
+	PHA
+	JSR     _ISKIPTMP
+	PLA
+	STA	PCL
+	PLA
+	STA	PCH
+	LDY	#$00
+	RTS
+;*
+;* INDIRECT CALL TO ADDRESS
+;*
+ICAL:	LDA     ESTKL,X
+	STA	TMPL
+	LDA     ESTKH,X
+	STA	TMPH
+        INX
+	LDA	PCH
+	PHA
+	LDA	PCL
+	PHA
+	JSR     _ISKIPTMP
+	PLA
+	STA	PCL
+	PLA
+	STA	PCH
+	LDY     #$00
+	RTS
+;*
+;* ENTER FUNCTION WITH FRAME SIZE AND PARAM COUNT
+;*
+ENTER:	INC     PCL
+        BNE     ENTER1
+        INC     PCH
+ENTER1:	LDA     (PC),Y
+        STA     FRMSZ
+        INC     PCL
+        BNE     ENTER2
+        INC	PCH
+ENTER2:	LDA	(PC),Y
+	STA	NPARMS
+_ENTER:	LDA     FRMPL
+        PHA
+        SEC
+        SBC     FRMSZ
+        STA     FRMPL
+        LDA     FRMPH
+        PHA
+        SBC     #$00
+        STA     FRMPH
+        LDY	#$01
+        PLA
+        STA     (FP),Y
+        DEY
+        PLA
+        STA     (FP),Y
+        LDA     NPARMS
+        BEQ     ENTER4
+        ASL
+        TAY
+        INY
+ENTER3:	LDA     ESTKH,X
+        STA     (FP),Y
+        DEY
+        LDA     ESTKL,X
+        STA     (FP),Y
+        DEY
+        INX
+        DEC     TMPL
+        BNE     ENTER3
+ENTER4:	LDY     #$00
+	RTS
+;*
+;* LEAVE FUNCTION
+;*
+LEAVE:	PLA
+	PLA
+_LEAVE:	LDY     #$01
+        LDA     (FP),Y
+        DEY
+        PHA
+        LDA     (FP),Y
+        STA     FRMPL
+        PLA
+        STA     FRMPH
+        RTS
+RET:	PLA
+	PLA
+        RTS

@@ -1,0 +1,189 @@
+const keyboard=$C000
+const keystrobe=$C010
+const iobuffer=$0800
+const databuff=$0C00
+const inbuff=$01FF
+byte loadadr[] = "LOAD ADDRESS: $"
+byte datasz[]  = "DATA SIZE: $"
+byte RLD[]     = "RELOCATION DIRECTORY:"
+byte ESD[]     = "SYMBOL TABLE:"
+byte errstr[]  = "ERROR: "
+byte perr
+
+def home
+  drop romcall(0, 0, 0, 0, $FC58)
+end
+
+def gotoxy(x, y)
+  ^($24) = x
+  drop romcall(y, 0, 0, 0, $FB5B)
+end
+
+def prbyte(val)
+  drop romcall(val, 0, 0, 0, $FDDA)
+end
+
+def prword(val)
+  drop romcall(val >> 8, val, 0, 0, $F941)
+end
+
+def crout
+  drop romcall(0, 0, 0, 0, $FD8E)
+end
+
+def getpfx(path)
+  byte params[3]
+
+  ^(path)  = 0
+  params.0 = 1
+  params:1 = path
+  perr     = syscall($C7, @params)
+  return path
+end
+
+def getfileinfo(path, infoptr)
+  byte params[18]
+
+  params.0 = 10
+  params:1 = path
+  perr     = syscall($C4, @params)
+  if not perr
+    memcpy(@params.3, infoptr, 15)
+  fin
+  return perr
+end
+
+def open(path, buff)
+  byte params[6]
+
+  params.0 = 3
+  params:1 = path
+  params:3 = buff
+  params.5 = 0
+  perr     = syscall($C8, @params)
+  return params.5
+end
+
+def close(refnum)
+  byte params[2]
+
+  params.0 = 1
+  params.1 = refnum
+  perr     = syscall($CC, @params)
+  return perr
+end
+
+def read(refnum, buff, len)
+  byte params[8]
+
+  params.0 = 4
+  params.1 = refnum
+  params:2 = buff
+  params:4 = len
+  params:6 = 0
+  perr     = syscall($CA, @params)
+  return params:6
+end
+
+def dumpln(memptr, ofst, len)
+  byte i
+
+  cout('$')
+  prword(ofst)
+  cout(':')
+  cout(' ')
+  len = len - 1
+  for i = 0 to len
+    prbyte((memptr).[i])
+    if i & 1
+      cout(' ')
+    fin
+  next
+  cout(' ')
+  for i = 0 to len
+    if (memptr).[i] & $7F < ' '
+      cout ('.')
+    else
+      cout((memptr).[i])
+    fin
+  next
+  crout
+end
+
+def dumprld(rld)
+  cout('$')
+  prbyte(^rld)
+  cout(':')
+  cout(' ')
+  cout('$')
+  prword(*(rld + 1))
+  cout(' ')
+  cout('$')
+  prbyte(^(rld + 3))
+  crout
+  return rld + 4
+end
+
+def dumpesd(esd)
+  while ^esd & $80
+    cout(^esd)
+    esd = esd + 1
+  loop
+  cout(^esd)
+  cout(':')
+  cout(' ')
+  cout('$')
+  prbyte(^(esd + 1))
+  cout(' ')
+  cout('$')
+  prword(^(esd + 2))
+  crout
+  return esd + 4
+end
+
+def dump(path)
+  byte refnum, info[15]
+  word len, ofst, datalen, rld, esd
+
+  getfileinfo(path, @info)
+  prstr(@loadadr)
+  prword(info:2)
+  crout
+  refnum = open(path, iobuffer)
+  len  = read(refnum, databuff, 512)
+  datalen = databuff:0
+  prstr(@datasz)
+  prword(datalen)
+  crout
+  rld = databuff + datalen + 2
+  ofst = 0
+  while datalen > 8
+    dumpln(databuff + 2 + ofst, ofst, 8)
+    ofst = ofst + 8
+    datalen  = datalen - 8
+  loop
+  dumpln(databuff + 2 + ofst, ofst, datalen)
+  crout
+  prstr(@RLD)
+  crout
+  while ^rld
+    rld = dumprld(rld)
+  loop
+  crout
+  prstr(@ESD)
+  crout
+  esd = rld + 1
+  while ^esd
+    esd = dumpesd(esd)
+  loop
+  drop close(refnum)
+end
+
+def getlin
+  ^inbuff = romcall(0, 0, 0, 0, $FD6A).1
+  return inbuff
+end
+
+home
+dump(getlin)
+done

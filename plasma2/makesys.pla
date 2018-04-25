@@ -1,0 +1,213 @@
+BYTE INFOBUFF[20]
+BYTE PERR
+WORD FILESTR = $2006
+;
+; Defines for ASM routines
+;
+ASM EQUATES
+        TMP     EQU     $F0
+        TMPL    EQU     TMP
+        TMPH    EQU     TMP+1
+        SRC     EQU     TMP
+        SRCL    EQU     SRC
+        SRCH    EQU     SRC+1
+        DST     EQU     SRC+2
+        DSTL    EQU     DST
+        DSTH    EQU     DST+1
+        ESP     EQU     DST+2
+JMPTMP:	JMP		(TMP)
+END
+;
+; CALL 6502 ROUTINE
+; ROMCALL(AREG, XREG, YREG, STATUS, ADDR)
+;
+ASM ROMCALL
+        PHP
+        LDA     ESTKL,X
+        STA     TMPL
+        LDA     ESTKH,X
+        STA     TMPH
+        INX
+        LDA     ESTKL,X
+        PHA
+        INX
+        LDA     ESTKL,X
+        TAY
+        INX
+        LDA     ESTKL+1,X
+        PHA
+        LDA     ESTKL,X
+        INX
+        STX     ESP
+        TAX
+        PLA
+        BIT     ROMIN
+        PLP
+        JSR     JMPTMP
+        PHP
+        BIT     LCBNK2
+        STA     REGVALS+0
+        STX     REGVALS+1
+        STY     REGVALS+2
+        PLA
+        STA     REGVALS+3
+        LDX     ESP
+        LDA     #<REGVALS
+        LDY     #>REGVALS
+        STA     ESTKL,X
+        STY     ESTKH,X
+        PLP
+        RTS
+REGVALS: DS 4
+END
+;
+;
+; CALL PRODOS
+; SYSCALL(CMD, PARAMS)
+;
+ASM SYSCALL
+        LDA     ESTKL,X
+        LDY     ESTKH,X
+        STA     PARAMS
+        STY     PARAMS+1
+        INX
+        LDA     ESTKL,X
+        STA     CMD
+        STX     ESP
+        BIT     ROMIN
+        JSR     $BF00
+CMD:    DB      00
+PARAMS: DW      0000
+        BIT     LCBNK2
+        LDX     ESP
+        STA     ESTKL,X
+        LDY     #$00
+        STY     ESTKH,X
+END
+;
+; COPY MEMORY
+; MEMCPY(SRCADDR, DSTADDR, SIZE)
+;
+ASM MEMCPY
+        LDY     #$00
+        LDA     ESTKL,X
+        BNE     :+
+        LDA     ESTKH,X
+        BEQ     MEMEXIT
+:       LDA     ESTKL+1,X
+        STA     DSTL
+        LDA     ESTKH+1,X
+        STA     DSTH
+        LDA     ESTKL+2,X
+        STA     SRCL
+        LDA     ESTKH+2,X
+        STA     SRCH
+        CMP     DSTH
+        BCC     REVCPY
+        BNE     FORCPY
+        LDA     SRCL
+        CMP     DSTL
+        BCS     FORCPY
+REVCPY:             ; REVERSE DIRECTION COPY
+;       CLC
+        LDA     ESTKL,X
+        ADC     DSTL
+        STA     DSTL
+        LDA     ESTKH,X
+        ADC     DSTH
+        STA     DSTH
+        CLC
+        LDA     ESTKL,X
+        ADC     SRCL
+        STA     SRCL
+        LDA     ESTKH,X
+        ADC     SRCH
+        STA     SRCH
+        INC     ESTKH,X
+REVCPYLP:
+        LDA     DSTL
+        BNE     :+
+        DEC     DSTH
+:       DEC     DSTL
+        LDA     SRCL
+        BNE     :+
+        DEC     SRCH
+:       DEC     SRCL
+        LDA     (SRC),Y
+        STA     (DST),Y
+        DEC     ESTKL,X
+        BNE     REVCPYLP
+        DEC     ESTKH,X
+        BNE     REVCPYLP
+        BEQ     MEMEXIT
+FORCPY: INC     ESTKH,X
+FORCPYLP:
+        LDA     (SRC),Y
+        STA     (DST),Y
+        INC     DSTL
+        BNE     :+
+        INC     DSTH
+:       INC     SRCL
+        BNE     :+
+        INC     SRCH
+:       DEC     ESTKL,X
+        BNE     FORCPYLP
+        DEC     ESTKH,X
+        BNE     FORCPYLP
+        BEQ     MEMEXIT
+END
+;
+; READ STRING
+; STR = RDSTR(PROMPTCHAR)
+;
+ASM RDSTR
+        LDA     ESTKL,X
+        STA     $33
+        STX     ESP
+        BIT     ROMIN
+        JSR     $FD6A
+        BIT     LCBNK2
+        STX     $01FF
+:       LDA     $01FF,X
+        AND     #$7F
+        STA     $01FF,X
+        DEX
+        BPL     :-
+        LDX     ESP
+        LDA     #$FF
+        STA     ESTKL,X
+        LDA     #$01
+        STA     ESTKH,X
+END
+
+DEF GETFILEINFO(PATH, INFOPTR)
+    BYTE PARAMS[18]
+
+    PARAMS.0 = 10
+    PARAMS:1 = PATH
+    PERR     = SYSCALL($C4, @PARAMS)
+    IF NOT PERR
+        MEMCPY(@PARAMS.3, INFOPTR, 15)
+    FIN
+    RETURN PERR
+END
+
+DEF SETFILEINFO(PATH, INFOPTR)
+    BYTE PARAMS[14]
+
+    PARAMS.0 = 7
+    PARAMS:1 = PATH
+    MEMCPY(INFOPTR, @PARAMS.3, 11)
+    PERR     = SYSCALL($C3, @PARAMS)
+    RETURN PERR
+END
+
+IF ^FILESTR == 0
+  FILESTR = RDSTR($BA)
+FIN
+IF GETFILEINFO(FILESTR, @INFOBUFF) == 0
+  INFOBUFF.1 = $FF
+  SETFILEINFO(FILESTR, @INFOBUFF)
+FIN
+DONE
+

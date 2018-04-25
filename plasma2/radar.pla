@@ -1,0 +1,162 @@
+CONST SHOWGR    = $C050
+CONST SHOWFULL  = $C052
+CONST SHOWPG1   = $C054
+CONST SHOWPG2   = $C055
+CONST SHOWLORES = $C056
+
+DEF TEXTMODE
+  DROP ^SHOWPG1
+  DROP ROMCALL(0, 0, 0, 0, $FB39)
+END
+
+DEF CPYBUF
+;  MEMCPY($0400, $0800, 1016)
+END
+
+DEF GRMODE
+  DROP ROMCALL(0, 0, 0, 0, $F832)
+  DROP ^SHOWGR
+  DROP ^SHOWFULL
+  CPYBUF
+;  DROP ^SHOWPG2
+  DROP ^SHOWLORES
+END
+
+DEF COLOR(CLR)
+  DROP ROMCALL(CLR, 0, 0, 0, $F864)
+END
+
+DEF PLOT(X, Y)
+  DROP ROMCALL(Y, 0, X, 0, $F800)
+END
+
+DEF HLIN(LEFT, RIGHT, VERT)
+  ^$2C = RIGHT
+  DROP ROMCALL(VERT, 0, LEFT, 0, $F819)
+END
+
+DEF VLIN(TOP, BOTTOM, HORZ)
+  ^$2D = BOTTOM
+  DROP ROMCALL(TOP, 0, HORZ, 0, $F828)
+END
+
+DEF LINE(X1, Y1, X2, Y2)
+  BYTE DX, DY, DX2, DY2, PP, S
+  WORD SX, SY, ERR, DXDY2
+
+  IF X1 < X2
+    SX = 1
+    DX = X2 - X1
+  ELSE
+    SX = -1
+    DX = X1 - X2
+  FIN
+  IF Y1 < Y2
+    SY = 1
+    DY = Y2 - Y1
+  ELSE
+    SY = -1
+    DY = Y1 - Y2
+  FIN
+  DX2   = DX << 1
+  DY2   = DY << 1
+  DXDY2 = DX2 - DY2
+  IF DX > DY
+    ERR = DX
+    PP  = X1
+    IF SX < 0
+      FOR S = PP DOWNTO X2
+        IF ERR < 0
+          HLIN(S + 1, PP, Y1)
+          PP  = S
+          ERR = ERR + DXDY2
+          Y1  = Y1 + SY
+        ELSE
+          ERR = ERR - DY2
+        FIN
+      NEXT
+      HLIN(X2, PP, Y2)
+    ELSE
+      FOR S = PP TO X2
+        IF ERR < 0
+          HLIN(PP, S - 1, Y1)
+          PP  = S
+          ERR = ERR + DXDY2
+          Y1  = Y1 + SY
+        ELSE
+          ERR = ERR - DY2
+        FIN
+      NEXT
+      HLIN(PP, X2, Y2)
+    FIN
+  ELSE
+    ERR = -DY
+    PP = Y1
+    IF SY < 0
+      FOR S = PP DOWNTO Y2
+        IF ERR >= 0
+          VLIN(S + 1, PP, X1)
+          PP  = S
+          ERR = ERR + DXDY2
+          X1  = X1 + SX
+        ELSE
+          ERR = ERR + DX2
+       FIN
+      NEXT
+      VLIN(Y2, PP, X2)
+    ELSE
+      FOR S = PP TO Y2
+        IF ERR >= 0
+          VLIN(PP, S - 1, X1)
+          PP  = S
+          ERR = ERR + DXDY2
+          X1  = X1 + SX
+        ELSE
+          ERR = ERR + DX2
+        FIN
+      NEXT
+      VLIN(PP, Y2, X2)
+    FIN
+  FIN
+END
+
+DEF RADAR(C)
+  BYTE I
+
+  FOR I = 0 TO 38
+    COLOR(C)
+    LINE(20, 24, I, 0)
+    CPYBUF
+    COLOR(0)
+    LINE(20, 24, I, 0)
+  NEXT
+  FOR I = 0 TO 46
+    COLOR(C)
+    LINE(20, 24, 39, I)
+    CPYBUF
+    COLOR(0)
+    LINE(20, 24, 39, I)
+  NEXT
+  FOR I = 39 DOWNTO 1
+    COLOR(C)
+    LINE(20, 24, I, 47)
+    CPYBUF
+    COLOR(0)
+    LINE(20, 24, I, 47)
+  NEXT
+  FOR I = 47 DOWNTO 1
+    COLOR(C)
+    LINE(20, 24, 0, I)
+    CPYBUF
+    COLOR(0)
+    LINE(20, 24, 0, I)
+  NEXT
+END
+
+GRMODE
+REPEAT
+  RADAR(15)
+UNTIL ^$C000 > 127
+DROP ^$C010
+TEXTMODE
+DONE

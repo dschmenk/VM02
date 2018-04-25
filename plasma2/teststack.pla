@@ -1,0 +1,7 @@
+word a, b
+
+defn test(parm1, parm2)
+  return 100 * parm1, 200 + parm2
+end
+a =, b = test(1, 2)
+done

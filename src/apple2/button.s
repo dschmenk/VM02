@@ -1,0 +1,26 @@
+;
+; READ BUTTON
+;
+	PLA
+	STA	$A0
+	PLA
+	STA	$A1
+	PLA
+	AND	#$03
+	TAX
+	PLA
+	PLA
+	PLA
+	LDA	$C061,X	; READ BUTTONS
+	ASL
+	LDA	#$00
+	PHA
+	PHA
+	PHA
+	ROL
+	PHA
+	LDA	$A1
+	PHA
+	LDA	$A0
+	PHA
+	RTS

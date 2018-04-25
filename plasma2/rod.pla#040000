@@ -1,0 +1,63 @@
+const showlores = $C056
+const keyboard  = $C000
+const keystrobe = $C010
+byte  exitmsg[] = "PRESS ANY KEY TO EXIT."
+byte  goodbye[] = "THAT'S ALL FOLKS!"
+byte  i, j, k, w, fmi, fmk, color
+
+def textmode
+  drop romcall(0, 0, 0, 0, $FB39)
+end
+
+def home
+  drop romcall(0, 0, 0, 0, $FC58)
+end
+
+def gotoxy(x, y)
+  ^($24) = x
+  drop romcall(y, 0, 0, 0, $FB5B)
+end
+
+def grmode
+  drop romcall(0, 0, 0, 0, $FB40)
+  ^showlores
+end
+
+def colors
+  while 1
+    for w = 3 to 50
+      for i = 1 to 19
+        for j = 0 to 19
+          k = i + j
+          color = (j * 3) / (i + 3) + i * w / 12
+          fmi = 40 - i
+          fmk = 40 - k
+          drop romcall(color, 0, 0,   0, $F864) ;grcolor(color);
+          drop romcall(k,     0, i,   0, $F800) ;grplot(i, k);
+          drop romcall(i,     0, k,   0, $F800) ;grplot(k, i);
+          drop romcall(fmk,   0, fmi, 0, $F800) ;grplot(fmi, fmk);
+          drop romcall(fmi,   0, fmk, 0, $F800) ;grplot(fmk, fmi);
+          drop romcall(fmi,   0, k,   0, $F800) ;grplot(k, fmi);
+          drop romcall(k,     0, fmi, 0, $F800) ;grplot(fmi, k);
+          drop romcall(fmk,   0, i,   0, $F800) ;grplot(i, fmk);
+          drop romcall(i,     0, fmk, 0, $F800) ;grplot(fmk, i);
+          if ^keyboard >= 128
+            drop ^keystrobe
+            return
+          fin
+        next
+      next
+    next
+  loop
+end
+
+
+grmode
+home
+gotoxy(10,22)
+prstr(@exitmsg)
+colors
+textmode
+home
+prstr(@goodbye)
+done
